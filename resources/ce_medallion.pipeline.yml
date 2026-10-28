@@ -1,0 +1,28 @@
+# Lakeflow Spark Declarative Pipeline: bronze (Auto Loader) → silver (conformed + expectations) → gold (expected cost,
+# cost explain, invoice recon, fails, KPIs). Reads the analyst-approved silver.fee_schedule published by ce_fee_extraction.
+resources:
+  pipelines:
+    ce_medallion:
+      name: ce_medallion
+      catalog: ${var.catalog}
+      schema: silver
+      serverless: true
+      photon: true
+      channel: CURRENT
+      continuous: false
+      root_path: ../src/pipeline
+      libraries:
+        - glob:
+            include: ../src/pipeline/**
+      configuration:
+        landing_root: /Volumes/${var.catalog}/landing/raw
+        as_of_date: "2026-10-05"
+        catalog: ${var.catalog}
+        # iteration settings: fail fast instead of retrying the same root cause (remove for production)
+        pipelines.numUpdateRetryAttempts: "0"
+        pipelines.maxFlowRetryAttempts: "0"
+      tags:
+        project: trade-cost-explain
+      permissions:
+        - level: CAN_VIEW
+          group_name: users

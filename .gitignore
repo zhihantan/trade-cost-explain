@@ -1,0 +1,12 @@
+# local build outputs
+.local_out/
+**/__pycache__/
+**/.venv/
+.venv/
+*.pyc
+.databricks/
+.DS_Store
+# app build artefacts (built on the platform at deploy time)
+cost-explain-app/node_modules/
+cost-explain-app/frontend/dist/
+cost-explain-app/.env

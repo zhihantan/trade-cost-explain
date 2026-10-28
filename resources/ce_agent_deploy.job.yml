@@ -1,0 +1,44 @@
+# Creates the agent's Unity Catalog tool functions, then logs, registers and deploys the commentary agent to
+# Model Serving (agents.deploy takes ~15 minutes, so it runs as a serverless job rather than inline).
+resources:
+  jobs:
+    ce_agent_deploy:
+      name: ce_agent_deploy
+      description: Trade Cost Explain — UC tool functions + commentary agent (MLflow ResponsesAgent) → ${var.agent_endpoint}
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: tool_functions
+          sql_task:
+            file:
+              path: ../src/agent/tools.sql
+            warehouse_id: ${resources.sql_warehouses.cost_explain_wh.id}
+        - task_key: log_and_deploy
+          depends_on:
+            - task_key: tool_functions
+          spark_python_task:
+            python_file: ../src/agent/deploy_agent.py
+            parameters:
+              - --agent-file
+              - ${workspace.file_path}/src/agent/commentary_agent.py
+              - --warehouse-id
+              - ${resources.sql_warehouses.cost_explain_wh.id}
+              - --catalog
+              - ${var.catalog}
+              - --llm-endpoint
+              - ${var.llm_endpoint}
+              - --endpoint-name
+              - ${var.agent_endpoint}
+              - --deploy
+          environment_key: agent
+      environments:
+        - environment_key: agent
+          spec:
+            environment_version: "4"
+            dependencies:
+              - mlflow>=3.4
+              - databricks-sdk>=0.60
+              - openai>=1.60
+              - httpx>=0.27
+              - databricks-agents>=1.4
+      tags:
+        project: trade-cost-explain

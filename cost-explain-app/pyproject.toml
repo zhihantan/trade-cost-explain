@@ -1,0 +1,20 @@
+[project]
+name = "cost-explain-app"
+version = "0.1.0"
+description = "Trade Cost Explain — commentary review & approval app (FastAPI backend)"
+requires-python = "==3.11.*"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "databricks-sdk>=0.89.0",
+  "databricks-sql-connector>=4.0",
+  "psycopg[binary,pool]>=3.1",
+  "pydantic-settings>=2.4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.uv]
+package = false
+# Commit uv.lock (run `uv lock`). Do not also add requirements.txt: it would take precedence over uv.

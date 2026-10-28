@@ -1,0 +1,33 @@
+# Trade Cost Explain — FP&A driver analytics demo (Meridian Group, synthetic; APAC Global Markets edition)
+# One bundle for every asset so the demo can be redeployed to an APAC workspace unchanged.
+bundle:
+  name: trade-cost-explain
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds every demo schema
+    default: cost_explain
+  llm_endpoint:
+    description: Foundation Model endpoint used by the commentary agent and fee-schedule extraction (model-agnostic)
+    default: databricks-claude-sonnet-5-5
+  agent_endpoint:
+    description: Model Serving endpoint name for the commentary agent
+    default: ce-commentary-agent
+  lakebase_project:
+    description: Lakebase Autoscaling project id for the review and approval app
+    default: cost-explain-db
+  app_name:
+    description: Databricks App name for the review and approval app
+    default: cost-explain-app
+
+# Sync honours .gitignore (local outputs, node_modules, frontend/dist, .venv are excluded there).
+
+targets:
+  dev:
+    default: true
+    workspace:
+      profile: fe-vm-zh-serverless
+    # No `mode: development`: it would prefix schema and job names, and the spec fixes the names (cost_explain.gold, ...).

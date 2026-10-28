@@ -1,0 +1,44 @@
+# Review & approval app (React + Vite frontend, FastAPI backend, Lakebase). Runtime command and env live in
+# cost-explain-app/app.yaml. The app was first created with the CLI for the smoke test, so bind it before the first
+# bundle deploy:  databricks bundle deployment bind cost_explain_app cost-explain-app --auto-approve
+resources:
+  apps:
+    cost_explain_app:
+      name: ${var.app_name}
+      description: Trade Cost Explain — variance commentary review & approval (Meridian Group, synthetic data)
+      source_code_path: ../cost-explain-app
+      user_api_scopes:
+        - sql
+        - model-serving
+        - genie
+      resources:
+        - name: sql-warehouse
+          description: cost-explain-wh
+          sql_warehouse:
+            id: ${resources.sql_warehouses.cost_explain_wh.id}
+            permission: CAN_USE
+        - name: postgres
+          description: Lakebase cost-explain-db / production
+          postgres:
+            branch: projects/${var.lakebase_project}/branches/production
+            database: projects/${var.lakebase_project}/branches/production/databases/databricks-postgres
+            permission: CAN_CONNECT_AND_CREATE
+        - name: review-sync-job
+          description: Replicates approvals into cost_explain.review after each decision
+          job:
+            id: ${resources.jobs.ce_review_sync.id}
+            permission: CAN_MANAGE_RUN
+        - name: serving-endpoint
+          description: Commentary agent (MLflow ResponsesAgent)
+          serving_endpoint:
+            name: ${var.agent_endpoint}
+            permission: CAN_QUERY
+        - name: genie-space
+          description: Genie space "Trade Cost Explain — APAC Global Markets" (Ask Genie panel)
+          genie_space:
+            name: Trade Cost Explain — APAC Global Markets
+            space_id: ${resources.genie_spaces.trade_cost_explain_genie.id}
+            permission: CAN_RUN
+      permissions:
+        - group_name: users
+          level: CAN_USE

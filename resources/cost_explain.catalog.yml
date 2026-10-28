@@ -1,0 +1,49 @@
+# Unity Catalog layout. The catalog itself is created once per workspace by scripts/bootstrap_catalog.sh
+# (accounts on Default Storage only allow catalog creation through SQL/UI, not the catalogs API).
+# Schemas are protected from `bundle destroy`.
+resources:
+  schemas:
+    landing:
+      catalog_name: ${var.catalog}
+      name: landing
+      comment: Raw source extracts (GL, AP, trades, settlements, FX, market data, revenue, plan, masters) and rate-card PDFs
+      lifecycle:
+        prevent_destroy: true
+    bronze:
+      catalog_name: ${var.catalog}
+      name: bronze
+      comment: Incrementally ingested raw tables (Auto Loader), one per source feed
+      lifecycle:
+        prevent_destroy: true
+    silver:
+      catalog_name: ${var.catalog}
+      name: silver
+      comment: Conformed facts, master data, mappings and the approved fee schedule
+      lifecycle:
+        prevent_destroy: true
+    gold:
+      catalog_name: ${var.catalog}
+      name: gold
+      comment: Expected cost, cost flux explain (volume / mix / rate / FX / timing / fails / fixed / unexplained), invoice recon, KPIs and metric views
+      lifecycle:
+        prevent_destroy: true
+    review:
+      catalog_name: ${var.catalog}
+      name: review
+      comment: Variance commentary, figure references and approval history replicated from Lakebase (control evidence)
+      lifecycle:
+        prevent_destroy: true
+
+  volumes:
+    raw:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.landing.name}
+      name: raw
+      volume_type: MANAGED
+      comment: Synthetic source-system extracts, one folder per feed
+    rate_cards:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.landing.name}
+      name: rate_cards
+      volume_type: MANAGED
+      comment: Broker, exchange and clearing-house fee schedule PDFs (English, Traditional Chinese, Korean)

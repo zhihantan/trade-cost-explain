@@ -1,0 +1,78 @@
+# One-click end-to-end build (redeploy-anywhere path):
+#   [regenerate synthetic data] → fee-schedule extraction → row-level security → medallion pipeline (full refresh)
+#   → metric views → tie-out gate
+# Regeneration is opt-in (regenerate_data=true) because the landing Volume normally already holds the data set.
+resources:
+  jobs:
+    ce_build:
+      name: ce_build
+      description: Trade Cost Explain — rebuild every Gold asset from the landing Volume and prove the planted bridge ties
+      max_concurrent_runs: 1
+      parameters:
+        - name: regenerate_data
+          default: "false"
+      tasks:
+        - task_key: should_regenerate
+          condition_task:
+            op: EQUAL_TO
+            left: "{{job.parameters.regenerate_data}}"
+            right: "true"
+        - task_key: generate_data
+          depends_on:
+            - task_key: should_regenerate
+              outcome: "true"
+          spark_python_task:
+            python_file: ../src/datagen/run_generate.py
+            parameters: ["--out", "/Volumes/${var.catalog}/landing/raw"]
+          environment_key: datagen
+        - task_key: fee_schedule_extraction
+          depends_on:
+            - task_key: generate_data
+            - task_key: should_regenerate
+              outcome: "false"
+          run_if: AT_LEAST_ONE_SUCCESS
+          run_job_task:
+            job_id: ${resources.jobs.ce_fee_extraction.id}
+        - task_key: row_level_security
+          depends_on:
+            - task_key: fee_schedule_extraction
+          sql_task:
+            file:
+              path: ../src/governance/row_filters.sql
+            warehouse_id: ${resources.sql_warehouses.cost_explain_wh.id}
+        - task_key: medallion_pipeline
+          depends_on:
+            - task_key: row_level_security
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.ce_medallion.id}
+            full_refresh: true
+        - task_key: semantic_layer
+          depends_on:
+            - task_key: medallion_pipeline
+          sql_task:
+            file:
+              path: ../src/metric_views/metric_views.sql
+            warehouse_id: ${resources.sql_warehouses.cost_explain_wh.id}
+        - task_key: access_grants
+          depends_on:
+            - task_key: semantic_layer
+          sql_task:
+            file:
+              path: ../src/governance/grants.sql
+            warehouse_id: ${resources.sql_warehouses.cost_explain_wh.id}
+        - task_key: tie_out
+          depends_on:
+            - task_key: access_grants
+          sql_task:
+            file:
+              path: ../src/tests/tie_out.sql
+            warehouse_id: ${resources.sql_warehouses.cost_explain_wh.id}
+      environments:
+        - environment_key: datagen
+          spec:
+            environment_version: "4"
+            dependencies:
+              - pyyaml>=6
+              - faker>=25
+      tags:
+        project: trade-cost-explain

@@ -1,0 +1,16 @@
+# Lakebase Autoscaling project behind the review & approval app (commentary, figures, approvals, draft jobs).
+# Creating the project auto-provisions the `production` branch and a `primary` read-write endpoint.
+resources:
+  postgres_projects:
+    cost_explain_db:
+      project_id: ${var.lakebase_project}
+      display_name: Trade Cost Explain — review & approval
+      pg_version: 17
+      default_endpoint_settings:
+        autoscaling_limit_min_cu: 0.5
+        autoscaling_limit_max_cu: 2
+      custom_tags:
+        - key: project
+          value: trade-cost-explain
+      lifecycle:
+        prevent_destroy: true

@@ -1,0 +1,22 @@
+command: ["uvicorn", "backend.main:app"]   # host and port come from UVICORN_HOST / UVICORN_PORT
+env:
+  - name: WAREHOUSE_ID
+    valueFrom: sql-warehouse        # use the resource keys you assign under App resources
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: postgres             # Lakebase Autoscaling endpoint path; PGHOST, PGDATABASE, PGUSER are also injected
+  - name: AGENT_ENDPOINT            # commentary agent (called on behalf of the user; template drafter is the fallback)
+    valueFrom: serving-endpoint
+  - name: AGENT_TIMEOUT_S           # drafts take ~30–40 s; runs in a background job, so not bound by the proxy limit
+    value: "180"
+  - name: GENIE_SPACE_ID            # "Ask Genie about this figure" panel (Genie space resource)
+    valueFrom: genie-space
+  - name: GOLD_SCHEMA
+    value: cost_explain.gold
+  - name: LAKEBASE_SCHEMA
+    value: cost_explain_app
+  - name: DATA_MODE                 # live = Gold only (no fixture fallback); auto/fixtures are for local development
+    value: live
+  - name: APP_DEMO_MODE             # enables the approver-only "Reset demo" action; set false outside demos
+    value: "true"
+  - name: APP_ENV
+    value: prod

@@ -1,0 +1,19 @@
+# AI/BI dashboard "Trade Cost Explain — APAC Global Markets" (talk-track scenes 1, 3, 4, 5, 6 + controls).
+# Viewers run queries with their own credentials (embed_credentials: false) so the desk row filters apply.
+# The dashboard already exists in the workspace (id 01f1cdaa355f19f88f21661e96bbf0a6). Before the next deploy, rename
+# this file to trade_cost_explain.dashboard.yml and run
+#   databricks bundle deployment bind trade_cost_explain 01f1cdaa355f19f88f21661e96bbf0a6 --profile fe-vm-zh-serverless
+# so the bundle adopts the existing dashboard instead of creating a second copy (see docs/DASHBOARD.md).
+resources:
+  dashboards:
+    trade_cost_explain:
+      display_name: "Trade Cost Explain — APAC Global Markets"
+      file_path: ../src/dashboards/trade_cost_explain.lvdash.json
+      warehouse_id: ${resources.sql_warehouses.cost_explain_wh.id}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: gold
+      parent_path: /Workspace/Shared/trade-cost-explain
+      embed_credentials: false
+      permissions:
+        - group_name: users
+          level: CAN_RUN

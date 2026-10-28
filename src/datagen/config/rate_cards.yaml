@@ -1,0 +1,557 @@
+# Canonical rate cards: the single source of truth for (1) the rate-card PDFs, (2) the analyst-approved
+# fee schedule, and (3) the generator's expected-cost engine.
+# All venues, CCPs and brokers are FICTIONAL. Fee structures are modelled on public HKEX, SGX, ASX and NSE/BSE
+# schedules, but rates are illustrative. Planted changes (PRX Tech discount ending 31-Aug-2026, IGX uniform
+# charge from 1-Sep-2026) are NOT real exchange or regulator actions.
+#
+# Line fields
+#   cost_type      EXCHANGE | CLEARING | SETTLEMENT | LEVY | TAX | BROKERAGE | FIXED
+#   fee_basis      PER_CONTRACT_SIDE | BPS_NOTIONAL | PER_TRADE | PER_INSTRUCTION | PER_MILLION_NOTIONAL | FIXED_MONTHLY
+#   capacity       ALL | HOUSE | CLIENT | MM | NON_MM (= HOUSE + CLIENT) | PRINCIPAL (= HOUSE + MM)
+#   side           ALL | BUY | SELL
+#   rate           currency units per contract-side / trade / instruction / million; basis points for BPS_NOTIONAL;
+#                  currency per month for FIXED_MONTHLY
+#   tier_basis     NONE | VENDOR_MONTHLY_TURNOVER_USD | MEMBER_MONTHLY_TURNOVER_LCY
+#   pass_through   statutory levy / tax collected on behalf of a regulator or government: recharged to clients
+#                  on CLIENT capacity (is_recoverable), borne by Meridian on HOUSE / MM capacity
+#   gst_rate / gst_recoverable_pct   GST charged on the fee and the share Meridian can recover
+defaults:
+  capacity: ALL
+  side: ALL
+  tier_basis: NONE
+  pass_through: false
+  is_discount_or_waiver: false
+  gst_rate: 0.0
+  gst_recoverable_pct: 0.0
+  effective_from: "2025-01-01"
+  effective_to: null
+
+cards:
+  # ───────────────────────────── Hong Kong ─────────────────────────────
+  - card_id: RC01
+    issuer: Pearl River Exchanges & Clearing
+    title: Securities Market — Trading, Settlement and Statutory Charges
+    language: en
+    currency: HKD
+    published: "2025-11-14"
+    doc_file: RC01_PRX_securities_market_fees_en.pdf
+    modelled_on: HKEX securities market fees, SFC / AFRC levies, HK stamp duty
+    notes:
+      - Charges apply per side to the consideration of each on-exchange transaction.
+      - Statutory levies and stamp duty are collected on behalf of the regulator and the government and passed to Exchange Participants' clients.
+      - Settlement fee is subject to a minimum of HK$2 and a maximum of HK$100 per side.
+    lines:
+      - {fee_id: PRX-SEC-TRD, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: HK_CASH_EQ, rate: 0.565,
+         description: "Trading fee — 0.00565% of consideration, per side"}
+      - {fee_id: PRX-SEC-TRF, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_TRADE, product_family: HK_CASH_EQ, rate: 0.50,
+         description: "Trading tariff — HK$0.50 per transaction, per side"}
+      - {fee_id: PRX-SEC-LVY, vendor_id: PRX, cost_type: LEVY, fee_basis: BPS_NOTIONAL, product_family: HK_CASH_EQ, rate: 0.27, pass_through: true,
+         description: "Securities regulator transaction levy — 0.0027% of consideration, per side"}
+      - {fee_id: PRX-SEC-AFR, vendor_id: PRX, cost_type: LEVY, fee_basis: BPS_NOTIONAL, product_family: HK_CASH_EQ, rate: 0.015, pass_through: true,
+         description: "Financial reporting council levy — 0.00015% of consideration, per side"}
+      - {fee_id: PRX-SEC-STD, vendor_id: PRX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: HK_CASH_EQ, rate: 10.0, pass_through: true,
+         description: "Stamp duty (collected for the government) — 0.10% of consideration, per side"}
+      - {fee_id: PRC-SEC-SET, vendor_id: PRC, cost_type: SETTLEMENT, fee_basis: BPS_NOTIONAL, product_family: HK_CASH_EQ, rate: 0.20,
+         floor_per_trade: 2.0, cap_per_trade: 100.0,
+         description: "Stock settlement fee — 0.002% of gross value, min HK$2, max HK$100, per side"}
+      - {fee_id: PRX-SEC-FIX, vendor_id: PRX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 240000, legal_entity: MSHK,
+         description: "Exchange participantship, trading rights and terminal connectivity — monthly"}
+      - {fee_id: PRC-SEC-FIX, vendor_id: PRC, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 80000, legal_entity: MSHK,
+         description: "Clearing participant fee — monthly"}
+
+  - card_id: RC02
+    issuer: Pearl River Exchanges & Clearing
+    title: Derivatives Market — Exchange, Levy and Clearing Fees per Contract
+    language: en
+    currency: HKD
+    published: "2026-02-20"
+    doc_file: RC02_PRX_derivatives_market_fees_en.pdf
+    modelled_on: HKEX listed derivatives trading fees, SFC commission levy, market-maker concessions, HS TECH futures discount
+    notes:
+      - All fees are per contract, per side.
+      - Registered market makers pay the concession rate on contracts booked to their registered market-making account.
+      - "Promotional discount: 50% of the exchange fee on PRX Tech Index Futures for trades from 1 March 2026 to 31 August 2026 inclusive."
+    lines:
+      - {fee_id: PRX-DV-50-EX, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_FUT, capacity: NON_MM, rate: 10.00,
+         description: "PRX 50 Index Futures — exchange fee", desc_zh: "PRX 50指數期貨 — 交易所費用"}
+      - {fee_id: PRX-DV-50-MM, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_FUT, capacity: MM, rate: 5.00,
+         is_discount_or_waiver: true, description: "PRX 50 Index Futures — exchange fee, registered market maker concession",
+         desc_zh: "PRX 50指數期貨 — 交易所費用（登記莊家優惠）"}
+      - {fee_id: PRX-DV-50-LV, vendor_id: PRX, cost_type: LEVY, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_FUT, rate: 0.54, pass_through: true,
+         description: "PRX 50 Index Futures — commission levy", desc_zh: "PRX 50指數期貨 — 證監會徵費"}
+      - {fee_id: PRC-DV-50-CL, vendor_id: PRC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_FUT, rate: 2.00,
+         description: "PRX 50 Index Futures — clearing fee", desc_zh: "PRX 50指數期貨 — 結算費"}
+      - {fee_id: PRX-DV-M50-EX, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_MINI_FUT, capacity: NON_MM, rate: 3.50,
+         description: "Mini PRX 50 Index Futures — exchange fee", desc_zh: "小型PRX 50指數期貨 — 交易所費用"}
+      - {fee_id: PRX-DV-M50-MM, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_MINI_FUT, capacity: MM, rate: 2.00,
+         is_discount_or_waiver: true, effective_to: "2026-12-31",
+         description: "Mini PRX 50 Index Futures — market maker concession (expires 31 Dec 2026)",
+         desc_zh: "小型PRX 50指數期貨 — 莊家優惠（2026年12月31日屆滿）"}
+      - {fee_id: PRX-DV-M50-MM2, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_MINI_FUT, capacity: MM, rate: 3.50,
+         effective_from: "2027-01-01", description: "Mini PRX 50 Index Futures — market maker rate from 1 Jan 2027",
+         desc_zh: "小型PRX 50指數期貨 — 2027年1月1日起莊家費率"}
+      - {fee_id: PRX-DV-M50-LV, vendor_id: PRX, cost_type: LEVY, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_MINI_FUT, rate: 0.10, pass_through: true,
+         description: "Mini PRX 50 Index Futures — commission levy", desc_zh: "小型PRX 50指數期貨 — 證監會徵費"}
+      - {fee_id: PRC-DV-M50-CL, vendor_id: PRC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_MINI_FUT, rate: 0.60,
+         description: "Mini PRX 50 Index Futures — clearing fee", desc_zh: "小型PRX 50指數期貨 — 結算費"}
+      - {fee_id: PRX-DV-TCH-EX, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRXTECH_FUT, capacity: NON_MM, rate: 5.00,
+         description: "PRX Tech Index Futures — exchange fee", desc_zh: "PRX科技指數期貨 — 交易所費用"}
+      - {fee_id: PRX-DV-TCH-DSC, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRXTECH_FUT, capacity: NON_MM, rate: -2.50,
+         is_discount_or_waiver: true, effective_from: "2026-03-01", effective_to: "2026-08-31",
+         description: "PRX Tech Index Futures — 50% promotional discount on the exchange fee, 1 Mar 2026 to 31 Aug 2026",
+         desc_zh: "PRX科技指數期貨 — 交易所費用五折優惠（2026年3月1日至2026年8月31日）"}
+      - {fee_id: PRX-DV-TCH-MM, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRXTECH_FUT, capacity: MM, rate: 1.00,
+         is_discount_or_waiver: true, description: "PRX Tech Index Futures — market maker concession", desc_zh: "PRX科技指數期貨 — 莊家優惠"}
+      - {fee_id: PRX-DV-TCH-LV, vendor_id: PRX, cost_type: LEVY, fee_basis: PER_CONTRACT_SIDE, product_family: PRXTECH_FUT, rate: 0.54, pass_through: true,
+         description: "PRX Tech Index Futures — commission levy", desc_zh: "PRX科技指數期貨 — 證監會徵費"}
+      - {fee_id: PRC-DV-TCH-CL, vendor_id: PRC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: PRXTECH_FUT, rate: 1.00,
+         description: "PRX Tech Index Futures — clearing fee", desc_zh: "PRX科技指數期貨 — 結算費"}
+      - {fee_id: PRX-DV-CEI-EX, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRXCEI_FUT, capacity: NON_MM, rate: 3.50,
+         description: "PRX China Enterprises Index Futures — exchange fee", desc_zh: "PRX國企指數期貨 — 交易所費用"}
+      - {fee_id: PRX-DV-CEI-MM, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRXCEI_FUT, capacity: MM, rate: 2.00,
+         is_discount_or_waiver: true, description: "PRX China Enterprises Index Futures — market maker concession", desc_zh: "PRX國企指數期貨 — 莊家優惠"}
+      - {fee_id: PRX-DV-CEI-LV, vendor_id: PRX, cost_type: LEVY, fee_basis: PER_CONTRACT_SIDE, product_family: PRXCEI_FUT, rate: 0.54, pass_through: true,
+         description: "PRX China Enterprises Index Futures — commission levy", desc_zh: "PRX國企指數期貨 — 證監會徵費"}
+      - {fee_id: PRC-DV-CEI-CL, vendor_id: PRC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: PRXCEI_FUT, rate: 1.00,
+         description: "PRX China Enterprises Index Futures — clearing fee", desc_zh: "PRX國企指數期貨 — 結算費"}
+      - {fee_id: PRX-DV-SOP-EX, vendor_id: PRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX_STOCK_OPT, rate: 2.00,
+         description: "Stock options — exchange fee", desc_zh: "股票期權 — 交易所費用"}
+      - {fee_id: PRX-DV-SOP-LV, vendor_id: PRX, cost_type: LEVY, fee_basis: PER_CONTRACT_SIDE, product_family: PRX_STOCK_OPT, rate: 0.15, pass_through: true,
+         description: "Stock options — commission levy", desc_zh: "股票期權 — 證監會徵費"}
+      - {fee_id: PRC-DV-SOP-CL, vendor_id: PRC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: PRX_STOCK_OPT, rate: 0.50,
+         description: "Stock options — clearing fee", desc_zh: "股票期權 — 結算費"}
+      - {fee_id: PRX-DV-FIX, vendor_id: PRX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 120000, legal_entity: MSHK,
+         description: "Derivatives participantship and trading connectivity — monthly", desc_zh: "衍生產品交易所參與者及交易連接費 — 每月"}
+
+  - card_id: RC03
+    issuer: Pearl River Exchanges & Clearing
+    title: 衍生產品市場 — 每張合約交易所費用、徵費及結算費
+    language: zh-Hant
+    currency: HKD
+    published: "2026-02-20"
+    doc_file: RC03_PRX_derivatives_market_fees_zh_hant.pdf
+    same_as: RC02          # Traditional Chinese edition of RC02 (cross-language extraction test)
+    modelled_on: HKEX listed derivatives fee schedule (Chinese edition)
+    notes:
+      - 所有費用均按每張合約、每邊收取。
+      - 登記莊家於其登記莊家賬戶進行之合約交易，按優惠費率收費。
+      - 推廣優惠：2026年3月1日至2026年8月31日（包括首尾兩日）期間，PRX科技指數期貨之交易所費用可享五折優惠。
+
+  # ───────────────────────────── Mainland China via Connect ─────────────────────────────
+  - card_id: RC04
+    issuer: Pearl River Exchanges & Clearing
+    title: Connect Northbound Trading — Fees, Levies and Taxes
+    language: en
+    currency: CNH
+    published: "2025-09-30"
+    doc_file: RC04_CNX_connect_northbound_fees_en.pdf
+    modelled_on: Stock Connect northbound handling fee, securities management fee, transfer fee, stamp duty
+    notes:
+      - Fees apply per side to the consideration of each northbound trade unless stated otherwise.
+      - Stamp duty is levied on the seller only.
+    lines:
+      - {fee_id: CNX-HDL, vendor_id: CNX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: CN_CONNECT_EQ, rate: 0.341,
+         description: "Handling fee — 0.00341% of consideration, per side"}
+      - {fee_id: CNX-SMF, vendor_id: CNX, cost_type: LEVY, fee_basis: BPS_NOTIONAL, product_family: CN_CONNECT_EQ, rate: 0.20, pass_through: true,
+         description: "Securities management fee — 0.002% of consideration, per side"}
+      - {fee_id: PRC-CNX-TRF, vendor_id: PRC, cost_type: CLEARING, fee_basis: BPS_NOTIONAL, product_family: CN_CONNECT_EQ, rate: 0.10,
+         description: "Transfer fee (mainland depository, collected by Pearl River Clearing) — 0.001% of consideration, per side"}
+      - {fee_id: CNX-STD, vendor_id: CNX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: CN_CONNECT_EQ, side: SELL, rate: 5.0, pass_through: true,
+         description: "Stamp duty — 0.05% of consideration, seller only"}
+      - {fee_id: CNX-FIX, vendor_id: CNX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 50000, legal_entity: MSHK,
+         description: "Connect participant and market data service — monthly"}
+
+  # ───────────────────────────── Singapore ─────────────────────────────
+  - card_id: RC05
+    issuer: Merlion Exchange & Merlion Clearing
+    title: Securities and Derivatives — Trading, Clearing and Settlement Fees
+    language: en
+    currency: SGD
+    published: "2025-12-01"
+    doc_file: RC05_MRX_MRC_fees_en.pdf
+    modelled_on: SGX securities clearing fee, access fee, settlement instruction fee; SGX derivatives (USD-denominated China index futures)
+    notes:
+      - Securities clearing fee is capped at S$600 per trade.
+      - USD-denominated derivatives are charged in US$ per contract per side.
+      - Prices exclude GST at 9%. GST is charged on fees billed to Singapore-registered members.
+    lines:
+      - {fee_id: MRC-SEC-CLR, vendor_id: MRC, cost_type: CLEARING, fee_basis: BPS_NOTIONAL, product_family: SG_CASH_EQ, rate: 3.25, cap_per_trade: 600.0,
+         gst_rate: 0.09, gst_recoverable_pct: 0.70, description: "Clearing fee — 0.0325% of contract value, capped at S$600 per trade"}
+      - {fee_id: MRX-SEC-ACC, vendor_id: MRX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: SG_CASH_EQ, rate: 0.75,
+         gst_rate: 0.09, gst_recoverable_pct: 0.70, description: "Access fee — 0.0075% of contract value"}
+      - {fee_id: MRC-SEC-SET, vendor_id: MRC, cost_type: SETTLEMENT, fee_basis: PER_INSTRUCTION, product_family: SG_CASH_EQ, rate: 0.35,
+         gst_rate: 0.09, gst_recoverable_pct: 0.70, description: "Settlement instruction fee — S$0.35 per instruction"}
+      - {fee_id: MRX-DV-CN50-EX, vendor_id: MRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: MRX_CN50_FUT, currency: USD, rate: 0.65,
+         gst_rate: 0.09, gst_recoverable_pct: 0.70, description: "Merlion China 50 Index Futures — exchange fee, US$ per contract per side"}
+      - {fee_id: MRC-DV-CN50-CL, vendor_id: MRC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: MRX_CN50_FUT, currency: USD, rate: 0.35,
+         effective_to: "2026-12-31", gst_rate: 0.09, gst_recoverable_pct: 0.70,
+         description: "Merlion China 50 Index Futures — clearing fee, US$ per contract per side (to 31 Dec 2026)"}
+      - {fee_id: MRC-DV-CN50-CL2, vendor_id: MRC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: MRX_CN50_FUT, currency: USD, rate: 0.40,
+         effective_from: "2027-01-01", gst_rate: 0.09, gst_recoverable_pct: 0.70,
+         description: "Merlion China 50 Index Futures — revised clearing fee from 1 Jan 2027"}
+      - {fee_id: MRX-FIX, vendor_id: MRX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 45000, legal_entity: MSSG,
+         description: "Trading membership and connectivity — monthly"}
+      - {fee_id: MRC-FIX, vendor_id: MRC, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 30000, legal_entity: MSSG,
+         description: "Clearing membership — monthly"}
+
+  # ───────────────────────────── Australia ─────────────────────────────
+  - card_id: RC06
+    issuer: Southern Cross Exchange Group
+    title: Schedule of Fees — Cash Market, Futures, Clearing, Settlement and Settlement Fails
+    language: en
+    currency: AUD
+    published: "2026-06-15"
+    doc_file: RC06_SXA_SXC_schedule_of_fees_en.pdf
+    modelled_on: ASX trade execution, ASX Clear / ASX Settlement fees, ASX 24 futures, IRF volume discount, settlement fail fees (0.10% per day, min A$100, max A$5,000)
+    notes:
+      - The schedule resets on 1 July each year. Prices are quoted ex-GST; GST at 10% applies.
+      - "Settlement fail fee: 0.10% of the value of the shortfall for each business day the shortfall persists, minimum A$100 and maximum A$5,000 per day, invoiced monthly in arrears."
+      - Interest rate futures volume discount is applied as a rebate per contract once the monthly hurdle is met.
+    lines:
+      - {fee_id: SXA-CSH-TRD, vendor_id: SXA, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: AU_CASH_EQ, rate: 0.58,
+         effective_to: "2026-06-30", gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "Trade execution fee — 0.0058% of value (to 30 Jun 2026)"}
+      - {fee_id: SXA-CSH-TRD-27, vendor_id: SXA, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: AU_CASH_EQ, rate: 0.60,
+         effective_from: "2026-07-01", gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "Trade execution fee — 0.0060% of value (from 1 Jul 2026)"}
+      - {fee_id: SXC-CSH-CLR, vendor_id: SXC, cost_type: CLEARING, fee_basis: BPS_NOTIONAL, product_family: AU_CASH_EQ, rate: 0.225,
+         effective_to: "2026-06-30", gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "Cash market clearing fee — 0.225 bps of value (to 30 Jun 2026)"}
+      - {fee_id: SXC-CSH-CLR-27, vendor_id: SXC, cost_type: CLEARING, fee_basis: BPS_NOTIONAL, product_family: AU_CASH_EQ, rate: 0.232,
+         effective_from: "2026-07-01", gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "Cash market clearing fee — 0.232 bps of value (from 1 Jul 2026)"}
+      - {fee_id: SXC-CSH-SET, vendor_id: SXC, cost_type: SETTLEMENT, fee_basis: PER_INSTRUCTION, product_family: AU_CASH_EQ, rate: 0.80,
+         effective_to: "2026-06-30", gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "Settlement — A$0.80 per instruction (to 30 Jun 2026)"}
+      - {fee_id: SXC-CSH-SET-27, vendor_id: SXC, cost_type: SETTLEMENT, fee_basis: PER_INSTRUCTION, product_family: AU_CASH_EQ, rate: 0.82,
+         effective_from: "2026-07-01", gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "Settlement — A$0.82 per instruction (from 1 Jul 2026)"}
+      - {fee_id: SXA-FUT-200-EX, vendor_id: SXA, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: SXA200_FUT, rate: 1.10,
+         gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "SXA 200 Index Futures — exchange fee per contract per side"}
+      - {fee_id: SXC-FUT-200-CL, vendor_id: SXC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: SXA200_FUT, rate: 0.40,
+         gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "SXA 200 Index Futures — clearing fee per contract per side"}
+      - {fee_id: SXA-FUT-IRF-EX, vendor_id: SXA, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: AU_BOND_FUT, rate: 0.90,
+         gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "3-year and 10-year bond futures — exchange fee per contract per side"}
+      - {fee_id: SXA-FUT-IRF-RB, vendor_id: SXA, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: AU_BOND_FUT, rate: -0.10,
+         is_discount_or_waiver: true, tier_basis: MEMBER_MONTHLY_CONTRACTS, tier_min: 50000, tier_type: REBATE,
+         gst_rate: 0.10, gst_recoverable_pct: 0.75,
+         description: "Interest rate futures volume discount — A$0.10 per contract rebate once monthly volume exceeds 50,000 contracts"}
+      - {fee_id: SXC-FUT-IRF-CL, vendor_id: SXC, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: AU_BOND_FUT, rate: 0.50,
+         gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "3-year and 10-year bond futures — clearing fee per contract per side"}
+      - {fee_id: SXA-FIX, vendor_id: SXA, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 92000, legal_entity: MSAU,
+         effective_to: "2026-06-30", description: "Market participant and futures participant fees — monthly (to 30 Jun 2026)"}
+      - {fee_id: SXA-FIX-27, vendor_id: SXA, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 95000, legal_entity: MSAU,
+         effective_from: "2026-07-01", description: "Market participant and futures participant fees — monthly (from 1 Jul 2026)"}
+      - {fee_id: SXC-FIX, vendor_id: SXC, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 40000, legal_entity: MSAU,
+         description: "Clearing and settlement participant fees — monthly"}
+
+  - card_id: RC07
+    issuer: Tasman Alternative Market
+    title: Trading Fee Schedule
+    language: en
+    currency: AUD
+    published: "2025-10-01"
+    doc_file: RC07_TAM_trading_fees_en.pdf
+    modelled_on: Alternative Australian lit / dark venue trading fees
+    notes:
+      - Trades executed on Tasman are cleared and settled through Southern Cross Clear and Southern Cross Settlement.
+      - Prices exclude GST.
+    lines:
+      - {fee_id: TAM-TRD, vendor_id: TAM, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: AU_CASH_EQ, rate: 0.20,
+         gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "Trading fee — 0.0020% of value"}
+      - {fee_id: TAM-FIX, vendor_id: TAM, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 20000, legal_entity: MSAU,
+         description: "Connectivity and market data — monthly"}
+
+  # ───────────────────────────── India ─────────────────────────────
+  - card_id: RC08
+    issuer: Indus Exchange & Indus Clearing Corporation
+    title: Transaction Charges, Clearing Charges and Statutory Levies — Equity Cash Segment
+    language: en
+    currency: INR
+    published: "2026-08-14"
+    doc_file: RC08_IGX_ICC_charges_en.pdf
+    modelled_on: NSE equity transaction charges (slab-wise to uniform 'true to label' change), SEBI turnover fee, STT, stamp duty
+    notes:
+      - "Until 31 August 2026 transaction charges are levied at slab rates on the member's total monthly turnover."
+      - "From 1 September 2026 a uniform transaction charge applies to all members (illustrative change, modelled on the 2024 'true to label' reform)."
+      - Securities transaction tax and stamp duty are statutory and collected on behalf of the government.
+    lines:
+      - {fee_id: IGX-TXN-S1, vendor_id: IGX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 0.345,
+         tier_basis: MEMBER_MONTHLY_TURNOVER_LCY, tier_min: 0, tier_max: 100000000000, tier_type: UPFRONT, effective_to: "2026-08-31",
+         description: "Transaction charge — slab 1, monthly turnover up to ₹10,000 crore: 0.00345%"}
+      - {fee_id: IGX-TXN-S2, vendor_id: IGX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 0.300,
+         tier_basis: MEMBER_MONTHLY_TURNOVER_LCY, tier_min: 100000000000, tier_max: 250000000000, tier_type: UPFRONT, effective_to: "2026-08-31",
+         description: "Transaction charge — slab 2, ₹10,000–25,000 crore: 0.00300%"}
+      - {fee_id: IGX-TXN-S3, vendor_id: IGX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 0.250,
+         tier_basis: MEMBER_MONTHLY_TURNOVER_LCY, tier_min: 250000000000, tier_type: UPFRONT, effective_to: "2026-08-31",
+         description: "Transaction charge — slab 3, above ₹25,000 crore: 0.00250%"}
+      - {fee_id: IGX-TXN-U, vendor_id: IGX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 0.322,
+         effective_from: "2026-09-01", description: "Transaction charge — uniform rate from 1 Sep 2026: 0.00322%"}
+      - {fee_id: IGX-SEBI, vendor_id: IGX, cost_type: LEVY, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 0.01, pass_through: true,
+         description: "Regulator turnover fee — ₹10 per crore (0.0001%)"}
+      - {fee_id: IGX-STT, vendor_id: IGX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 10.0, pass_through: true,
+         description: "Securities transaction tax (delivery) — 0.1% of value, buy and sell"}
+      - {fee_id: IGX-STAMP, vendor_id: IGX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, side: BUY, rate: 0.15, pass_through: true,
+         description: "Stamp duty — 0.015% of value, buyer only"}
+      - {fee_id: ICC-CLR, vendor_id: ICC, cost_type: CLEARING, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 0.05,
+         description: "Clearing charge — 0.0005% of value"}
+      - {fee_id: ICC-SET, vendor_id: ICC, cost_type: SETTLEMENT, fee_basis: PER_INSTRUCTION, product_family: IN_CASH_EQ, rate: 15.0,
+         description: "Depository settlement — ₹15 per instruction"}
+      - {fee_id: IGX-FIX, vendor_id: IGX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 2600000, legal_entity: MSIN,
+         description: "Trading membership, co-location and connectivity — monthly"}
+      - {fee_id: ICC-FIX, vendor_id: ICC, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 900000, legal_entity: MSIN,
+         description: "Clearing membership — monthly"}
+
+  - card_id: RC09
+    issuer: Deccan Exchange
+    title: Equity Segment Transaction Charges
+    language: en
+    currency: INR
+    published: "2025-10-01"
+    doc_file: RC09_DCX_transaction_charges_en.pdf
+    modelled_on: BSE equity transaction charges and statutory levies
+    notes:
+      - Trades executed on Deccan Exchange are cleared through Indus Clearing Corporation under interoperability.
+    lines:
+      - {fee_id: DCX-TXN, vendor_id: DCX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 0.375,
+         description: "Transaction charge — 0.00375% of value"}
+      - {fee_id: DCX-SEBI, vendor_id: DCX, cost_type: LEVY, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 0.01, pass_through: true,
+         description: "Regulator turnover fee — 0.0001%"}
+      - {fee_id: DCX-STT, vendor_id: DCX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, rate: 10.0, pass_through: true,
+         description: "Securities transaction tax (delivery) — 0.1% of value"}
+      - {fee_id: DCX-STAMP, vendor_id: DCX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, side: BUY, rate: 0.15, pass_through: true,
+         description: "Stamp duty — 0.015% of value, buyer only"}
+      - {fee_id: DCX-FIX, vendor_id: DCX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 800000, legal_entity: MSIN,
+         description: "Trading membership — monthly"}
+
+  # ───────────────────────────── Korea / Taiwan / Malaysia ─────────────────────────────
+  - card_id: RC10
+    issuer: Han River Exchange
+    title: 거래소 수수료 안내 — 유가증권시장 및 파생상품시장
+    title_en: Exchange Fee Schedule — Securities and Derivatives Markets
+    language: ko
+    currency: KRW
+    published: "2026-01-02"
+    doc_file: RC10_HRX_fee_schedule_ko.pdf
+    modelled_on: KRX trading fees, securities transaction tax, KOSPI 200 futures fees
+    notes:
+      - 유가증권시장 거래수수료는 거래대금 기준으로 부과됩니다.
+      - 증권거래세는 매도자에게 부과됩니다.
+      - 파생상품 수수료는 계약당·편도 기준입니다.
+    lines:
+      - {fee_id: HRX-CSH-TRD, vendor_id: HRX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: KR_CASH_EQ, rate: 0.27,
+         description: "Securities market trading fee — 0.0027% of value", desc_ko: "유가증권시장 거래수수료 — 거래대금의 0.0027%"}
+      - {fee_id: HRX-CSH-SET, vendor_id: HRX, cost_type: SETTLEMENT, fee_basis: PER_INSTRUCTION, product_family: KR_CASH_EQ, rate: 300,
+         description: "Settlement and depository — KRW 300 per instruction", desc_ko: "결제 및 예탁 수수료 — 건당 300원"}
+      - {fee_id: HRX-CSH-STT, vendor_id: HRX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: KR_CASH_EQ, side: SELL, rate: 15.0, pass_through: true,
+         description: "Securities transaction tax — 0.15% of value, seller only", desc_ko: "증권거래세 — 매도대금의 0.15%"}
+      - {fee_id: HRX-FUT-200-EX, vendor_id: HRX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: HRX200_FUT, rate: 1800,
+         description: "HRX 200 Index Futures — exchange fee per contract per side", desc_ko: "HRX 200 지수선물 — 계약당 거래수수료 1,800원"}
+      - {fee_id: HRX-FUT-200-CL, vendor_id: HRX, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: HRX200_FUT, rate: 600,
+         description: "HRX 200 Index Futures — clearing fee per contract per side", desc_ko: "HRX 200 지수선물 — 계약당 청산수수료 600원"}
+      - {fee_id: HRX-FIX, vendor_id: HRX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 45000000, legal_entity: MSKR,
+         description: "Membership and connectivity — monthly", desc_ko: "회원 및 접속 수수료 — 월정액"}
+
+  - card_id: RC11
+    issuer: Formosa Exchange
+    title: 交易經手費及相關費用收費標準
+    title_en: Handling Fees and Related Charges
+    language: zh-Hant
+    currency: TWD
+    published: "2025-12-15"
+    doc_file: RC11_FMX_fee_schedule_zh_hant.pdf
+    modelled_on: TWSE handling fee, securities transaction tax, TAIFEX index futures fees
+    notes:
+      - 集中市場經手費按成交金額計收。
+      - 證券交易稅由賣方負擔。
+      - 期貨交易經手費及結算費按每口、每邊計收。
+    lines:
+      - {fee_id: FMX-CSH-TRD, vendor_id: FMX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: TW_CASH_EQ, rate: 0.435,
+         description: "Handling fee — 0.00435% of value", desc_zh: "集中市場經手費 — 成交金額之0.00435%"}
+      - {fee_id: FMX-CSH-STT, vendor_id: FMX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: TW_CASH_EQ, side: SELL, rate: 30.0, pass_through: true,
+         description: "Securities transaction tax — 0.3% of value, seller only", desc_zh: "證券交易稅 — 賣出成交金額之0.3%"}
+      - {fee_id: FMX-FUT-IDX-EX, vendor_id: FMX, cost_type: EXCHANGE, fee_basis: PER_CONTRACT_SIDE, product_family: FMX_IDX_FUT, rate: 30,
+         description: "Formosa Index Futures — handling fee per contract per side", desc_zh: "台股指數期貨 — 每口每邊交易經手費新台幣30元"}
+      - {fee_id: FMX-FUT-IDX-CL, vendor_id: FMX, cost_type: CLEARING, fee_basis: PER_CONTRACT_SIDE, product_family: FMX_IDX_FUT, rate: 10,
+         description: "Formosa Index Futures — clearing fee per contract per side", desc_zh: "台股指數期貨 — 每口每邊結算手續費新台幣10元"}
+      - {fee_id: FMX-FIX, vendor_id: FMX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 900000, legal_entity: MSTW,
+         description: "Membership and connectivity — monthly", desc_zh: "會員及連線費用 — 每月"}
+
+  - card_id: RC12
+    issuer: Straits Exchange
+    title: Equities — Trading, Clearing and Stamp Duty
+    language: en
+    currency: MYR
+    published: "2025-11-03"
+    doc_file: RC12_STX_equities_fees_en.pdf
+    modelled_on: Bursa Malaysia trading and clearing fees, stamp duty (capped)
+    notes:
+      - Clearing fee and stamp duty are each capped at RM1,000 per contract.
+    lines:
+      - {fee_id: STX-TRD, vendor_id: STX, cost_type: EXCHANGE, fee_basis: BPS_NOTIONAL, product_family: MY_CASH_EQ, rate: 0.25,
+         description: "Trading fee — 0.0025% of value"}
+      - {fee_id: STX-CLR, vendor_id: STX, cost_type: CLEARING, fee_basis: BPS_NOTIONAL, product_family: MY_CASH_EQ, rate: 3.0, cap_per_trade: 1000.0,
+         description: "Clearing fee — 0.03% of value, capped at RM1,000"}
+      - {fee_id: STX-STD, vendor_id: STX, cost_type: TAX, fee_basis: BPS_NOTIONAL, product_family: MY_CASH_EQ, rate: 10.0, cap_per_trade: 1000.0, pass_through: true,
+         description: "Stamp duty — 0.1% of value, capped at RM1,000"}
+      - {fee_id: STX-FIX, vendor_id: STX, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, rate: 60000, legal_entity: MSMY,
+         description: "Participating organisation fee — monthly"}
+
+  # ───────────────────────────── Brokers ─────────────────────────────
+  - card_id: RC13
+    issuer: Cobalt Securities ("Broker C")
+    title: Regional DMA Commission Schedule — Korea, Taiwan, India
+    language: en
+    currency: USD
+    published: "2026-01-05"
+    doc_file: RC13_Cobalt_commission_schedule_en.pdf
+    modelled_on: Tiered all-in DMA commission with a monthly volume rebate
+    notes:
+      - All-in commission includes exchange and clearing fees; statutory taxes are passed through at cost.
+      - "Tiers apply to Meridian Group's aggregate monthly turnover across Korea, Taiwan and India, measured in US$ at the monthly average rate."
+      - The difference between the standard rate and the applicable tier rate is credited as a rebate on the monthly invoice.
+      - Commission is invoiced in the local currency of each market.
+    lines:
+      - {fee_id: COB-STD-KR, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: KR_CASH_EQ, currency: KRW, rate: 3.0,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 0, tier_max: 1200000000, tier_type: REBATE, description: "Standard tier (< US$1.2bn) — 3.0 bps"}
+      - {fee_id: COB-T2-KR, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: KR_CASH_EQ, currency: KRW, rate: 2.5,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 1200000000, tier_max: 2500000000, tier_type: REBATE, description: "Tier 2 (US$1.2bn–2.5bn) — 2.5 bps"}
+      - {fee_id: COB-T3-KR, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: KR_CASH_EQ, currency: KRW, rate: 2.2,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 2500000000, tier_type: REBATE, description: "Tier 3 (≥ US$2.5bn) — 2.2 bps"}
+      - {fee_id: COB-STD-TW, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: TW_CASH_EQ, currency: TWD, rate: 3.0,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 0, tier_max: 1200000000, tier_type: REBATE, description: "Standard tier (< US$1.2bn) — 3.0 bps"}
+      - {fee_id: COB-T2-TW, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: TW_CASH_EQ, currency: TWD, rate: 2.5,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 1200000000, tier_max: 2500000000, tier_type: REBATE, description: "Tier 2 (US$1.2bn–2.5bn) — 2.5 bps"}
+      - {fee_id: COB-T3-TW, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: TW_CASH_EQ, currency: TWD, rate: 2.2,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 2500000000, tier_type: REBATE, description: "Tier 3 (≥ US$2.5bn) — 2.2 bps"}
+      - {fee_id: COB-STD-IN, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, currency: INR, rate: 3.0,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 0, tier_max: 1200000000, tier_type: REBATE, description: "Standard tier (< US$1.2bn) — 3.0 bps"}
+      - {fee_id: COB-T2-IN, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, currency: INR, rate: 2.5,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 1200000000, tier_max: 2500000000, tier_type: REBATE, description: "Tier 2 (US$1.2bn–2.5bn) — 2.5 bps"}
+      - {fee_id: COB-T3-IN, vendor_id: B03, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: IN_CASH_EQ, currency: INR, rate: 2.2,
+         tier_basis: VENDOR_MONTHLY_TURNOVER_USD, tier_min: 2500000000, tier_type: REBATE, description: "Tier 3 (≥ US$2.5bn) — 2.2 bps"}
+
+  - card_id: RC14
+    issuer: Aurora Pacific Securities
+    title: Listed Derivatives Execution Commission (Give-up)
+    language: en
+    currency: HKD
+    published: "2025-09-01"
+    doc_file: RC14_Aurora_derivatives_commission_en.pdf
+    modelled_on: Executing-broker give-up commission per contract
+    notes:
+      - Commission per contract per side for client orders executed by Aurora and given up to Meridian for clearing.
+    lines:
+      - {fee_id: AUR-50, vendor_id: B01, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_FUT, rate: 3.00, description: "PRX 50 Index Futures — HK$3.00"}
+      - {fee_id: AUR-M50, vendor_id: B01, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX50_MINI_FUT, rate: 1.20, description: "Mini PRX 50 Index Futures — HK$1.20"}
+      - {fee_id: AUR-TCH, vendor_id: B01, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRXTECH_FUT, rate: 2.00, description: "PRX Tech Index Futures — HK$2.00"}
+      - {fee_id: AUR-CEI, vendor_id: B01, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRXCEI_FUT, rate: 2.00, description: "PRX China Enterprises Index Futures — HK$2.00"}
+      - {fee_id: AUR-SOP, vendor_id: B01, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: PRX_STOCK_OPT, rate: 1.50, description: "Stock options — HK$1.50"}
+
+  - card_id: RC15
+    issuer: Bluewater Brokerage
+    title: Inter-dealer Brokerage — FX and Rates
+    language: en
+    currency: USD
+    published: "2026-03-20"
+    doc_file: RC15_Bluewater_idb_brokerage_en.pdf
+    modelled_on: Inter-dealer broker per-million brokerage
+    notes:
+      - Brokerage per million of notional. Singapore-dollar swaps are charged in SGD.
+      - Rates revised from 1 April 2026.
+    lines:
+      - {fee_id: BLU-FX, vendor_id: B02, cost_type: BROKERAGE, fee_basis: PER_MILLION_NOTIONAL, product_family: FX_SPOT_NDF, currency: USD, rate: 2.40,
+         effective_to: "2026-03-31", description: "FX spot and NDF — US$2.40 per million (to 31 Mar 2026)"}
+      - {fee_id: BLU-FX-27, vendor_id: B02, cost_type: BROKERAGE, fee_basis: PER_MILLION_NOTIONAL, product_family: FX_SPOT_NDF, currency: USD, rate: 2.50,
+         effective_from: "2026-04-01", description: "FX spot and NDF — US$2.50 per million (from 1 Apr 2026)"}
+      - {fee_id: BLU-IRS, vendor_id: B02, cost_type: BROKERAGE, fee_basis: PER_MILLION_NOTIONAL, product_family: SG_IRS, currency: SGD, rate: 6.00,
+         description: "SGD interest rate swaps — S$6.00 per million"}
+
+  - card_id: RC16
+    issuer: Dunmore Capital Markets
+    title: Regional Index Futures Execution Commission
+    language: en
+    currency: USD
+    published: "2025-11-20"
+    doc_file: RC16_Dunmore_index_futures_commission_en.pdf
+    modelled_on: Executing-broker commission per contract in local currency
+    notes:
+      - Commission per contract per side, invoiced in the currency of the contract.
+    lines:
+      - {fee_id: DUN-HRX200, vendor_id: B04, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: HRX200_FUT, currency: KRW, rate: 1200, description: "HRX 200 Index Futures — KRW 1,200"}
+      - {fee_id: DUN-SXA200, vendor_id: B04, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: SXA200_FUT, currency: AUD, rate: 0.80, description: "SXA 200 Index Futures — A$0.80"}
+      - {fee_id: DUN-FMX, vendor_id: B04, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: FMX_IDX_FUT, currency: TWD, rate: 20, description: "Formosa Index Futures — NT$20"}
+
+  - card_id: RC17
+    issuer: Emberly Securities
+    title: Credit Inter-dealer Brokerage
+    language: en
+    currency: USD
+    published: "2025-08-15"
+    doc_file: RC17_Emberly_credit_brokerage_en.pdf
+    modelled_on: Credit IDB bps-of-notional brokerage
+    lines:
+      - {fee_id: EMB-BOND, vendor_id: B05, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: USD_CREDIT_BOND, rate: 0.25,
+         description: "US$ Asian credit bonds — 0.25 bps of notional"}
+
+  - card_id: RC18
+    issuer: Foxglove Brokerage
+    title: Emerging Markets Brokerage — NDF, Malaysia Government Securities
+    language: en
+    currency: USD
+    published: "2025-10-10"
+    doc_file: RC18_Foxglove_em_brokerage_en.pdf
+    modelled_on: EM voice broker per-million and bps brokerage
+    lines:
+      - {fee_id: FOX-NDF, vendor_id: B06, cost_type: BROKERAGE, fee_basis: PER_MILLION_NOTIONAL, product_family: EM_NDF, currency: USD, rate: 3.00,
+         description: "Asian NDFs — US$3.00 per million"}
+      - {fee_id: FOX-MGS, vendor_id: B06, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: MYR_GOVT_BOND, currency: MYR, rate: 0.50,
+         description: "Malaysia government securities — 0.5 bps of notional, invoiced in MYR"}
+
+  - card_id: RC19
+    issuer: Goldcrest Execution
+    title: Australian Interest Rate Futures Execution
+    language: en
+    currency: AUD
+    published: "2025-07-01"
+    doc_file: RC19_Goldcrest_irf_execution_en.pdf
+    modelled_on: Futures executing-broker commission
+    lines:
+      - {fee_id: GLD-IRF, vendor_id: B07, cost_type: BROKERAGE, fee_basis: PER_CONTRACT_SIDE, product_family: AU_BOND_FUT, rate: 0.60,
+         gst_rate: 0.10, gst_recoverable_pct: 0.75, description: "3-year and 10-year bond futures — A$0.60 per contract per side"}
+
+  - card_id: RC20
+    issuer: Meridian Execution Services (intra-group)
+    title: Intra-group Agency Execution — Transfer Pricing Schedule
+    language: en
+    currency: USD
+    published: "2026-04-01"
+    doc_file: RC20_MES_intragroup_schedule_en.pdf
+    modelled_on: Intra-group agency execution charges (eliminated on consolidation)
+    notes:
+      - Intra-group charges are eliminated in Meridian Group consolidated results.
+    lines:
+      - {fee_id: MES-HK, vendor_id: B08, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: HK_CASH_EQ, currency: HKD, rate: 1.5, description: "Hong Kong algorithmic execution — 1.5 bps"}
+      - {fee_id: MES-AU, vendor_id: B08, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: AU_CASH_EQ, currency: AUD, rate: 1.5, description: "Australia algorithmic execution — 1.5 bps"}
+      - {fee_id: MES-SG, vendor_id: B08, cost_type: BROKERAGE, fee_basis: BPS_NOTIONAL, product_family: SG_CASH_EQ, currency: SGD, rate: 1.5, description: "Singapore algorithmic execution — 1.5 bps"}
+
+# Fixed connectivity contracts that are not exchange rate cards (Procurement contract register).
+vendor_contracts:
+  - {fee_id: PDL-FIX, vendor_id: V21, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, currency: USD, rate: 30000, legal_entity: MSHK,
+     description: "Pacific Data Links — regional low-latency network and cross-connects"}
+  - {fee_id: STC-FIX, vendor_id: V22, cost_type: FIXED, fee_basis: FIXED_MONTHLY, product_family: ALL, currency: SGD, rate: 20000, legal_entity: MSSG,
+     description: "Straits Connectivity — Singapore hosting and market access lines"}
+
+# Market-specific settlement-fail cost rules (only the Southern Cross rule is taken from a published-style schedule;
+# the others are illustrative and flagged "confirm with client Operations").
+fail_cost_rules:
+  - {market: AU, vendor_id: SXC, rule_type: PER_DAY_PCT, pct_per_day: 0.0010, min_per_day: 100, max_per_day: 5000, currency: AUD, buy_in_after_days: 5,
+     invoiced: "monthly in arrears", source_doc: RC06, confirmed: true}
+  - {market: HK, vendor_id: PRC, rule_type: PER_DAY_PCT, pct_per_day: 0.0002, min_per_day: 200, max_per_day: 20000, currency: HKD, buy_in_after_days: 3,
+     invoiced: "monthly", source_doc: Operations rulebook (illustrative), confirmed: false}
+  - {market: SG, vendor_id: MRC, rule_type: PER_DAY_PCT, pct_per_day: 0.0005, min_per_day: 50, max_per_day: 5000, currency: SGD, buy_in_after_days: 3,
+     invoiced: "monthly", source_doc: Operations rulebook (illustrative), confirmed: false}
+  - {market: IN, vendor_id: ICC, rule_type: CLOSE_OUT_PCT, pct_per_day: 0.0050, min_per_day: 5000, max_per_day: null, currency: INR, buy_in_after_days: 1,
+     invoiced: "monthly", source_doc: Operations rulebook (illustrative), confirmed: false}
+  - {market: KR, vendor_id: HRX, rule_type: PER_DAY_PCT, pct_per_day: 0.0001, min_per_day: 50000, max_per_day: 5000000, currency: KRW, buy_in_after_days: 2,
+     invoiced: "monthly", source_doc: Operations rulebook (illustrative), confirmed: false}
+  - {market: TW, vendor_id: FMX, rule_type: PER_DAY_PCT, pct_per_day: 0.0001, min_per_day: 1000, max_per_day: 100000, currency: TWD, buy_in_after_days: 2,
+     invoiced: "monthly", source_doc: Operations rulebook (illustrative), confirmed: false}
+  - {market: CN, vendor_id: PRC, rule_type: PER_DAY_PCT, pct_per_day: 0.0002, min_per_day: 100, max_per_day: 10000, currency: CNH, buy_in_after_days: 1,
+     invoiced: "monthly", source_doc: Operations rulebook (illustrative), confirmed: false}
+  - {market: MY, vendor_id: STX, rule_type: PER_DAY_PCT, pct_per_day: 0.0002, min_per_day: 50, max_per_day: 2000, currency: MYR, buy_in_after_days: 3,
+     invoiced: "monthly", source_doc: Operations rulebook (illustrative), confirmed: false}

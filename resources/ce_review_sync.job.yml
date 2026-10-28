@@ -1,0 +1,23 @@
+# Replicates the review app's Lakebase store (registered in UC as catalog cost_explain_lakebase) into
+# cost_explain.review Delta tables — the documented fallback for Lakehouse Sync (unsupported on Default Storage
+# catalogs). The app triggers a run after every submit / approve / reject; the daily schedule is a backstop.
+resources:
+  jobs:
+    ce_review_sync:
+      name: ce_review_sync
+      description: Merge commentary, versions, figure snapshots and approval events from Lakebase into cost_explain.review
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: Asia/Singapore
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: merge_review
+          sql_task:
+            file:
+              path: ../src/review_sync/01_merge_review.sql
+            warehouse_id: ${resources.sql_warehouses.cost_explain_wh.id}
+      tags:
+        project: trade-cost-explain

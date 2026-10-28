@@ -1,0 +1,4615 @@
+{
+  "datasets": [
+    {
+      "name": "ds_flux",
+      "displayName": "Cost bridge (metric view)",
+      "asset_name": "cost_explain.gold.trade_cost_flux_metrics"
+    },
+    {
+      "name": "ds_trend",
+      "displayName": "Desk KPIs (metric view)",
+      "asset_name": "cost_explain.gold.desk_cost_kpi_metrics"
+    },
+    {
+      "name": "ds_recon",
+      "displayName": "Invoice reconciliation (metric view)",
+      "asset_name": "cost_explain.gold.invoice_recon_metrics"
+    },
+    {
+      "name": "ds_fails",
+      "displayName": "Settlement fails (metric view)",
+      "asset_name": "cost_explain.gold.settlement_fail_metrics"
+    },
+    {
+      "name": "ds_steps",
+      "displayName": "Bridge steps (prior period + effects)",
+      "queryLines": [
+        "SELECT c.comparison_label, b.comparison_id, b.business, b.desk_name, b.headline_slice, b.cost_category, b.market, b.currency,\n",
+        "       'Prior period' AS step, 0 AS step_order, 'Prior period' AS flux_class, b.p0_actual_usd AS amount_usd\n",
+        "FROM cost_flux_bridge b JOIN dim_comparison c ON c.comparison_id = b.comparison_id\n",
+        "UNION ALL\n",
+        "SELECT c.comparison_label, e.comparison_id, e.business, e.desk_name, e.headline_slice, e.cost_category, e.market, e.currency,\n",
+        "       e.effect_label AS step, e.effect_order AS step_order, e.flux_class, e.amount_usd\n",
+        "FROM cost_flux_effects e JOIN dim_comparison c ON c.comparison_id = e.comparison_id\n"
+      ]
+    },
+    {
+      "name": "ds_slice",
+      "displayName": "Driver slices (volume / mix / rate)",
+      "queryLines": [
+        "SELECT c.comparison_label, s.comparison_id, s.desk_code, s.product_family, concat(s.desk_code, ' · ', s.product_family) AS desk_product,\n",
+        "       concat(s.venue, ' · ', s.capacity) AS venue_capacity, s.cost_type, s.vendor_id, s.venue, s.capacity, s.market, s.currency,\n",
+        "       s.volume_unit, s.v0, s.v1, s.unit_cost0_usd, s.unit_cost1_cc_usd, s.c0_usd, s.c1_cc_usd, s.volume_usd, s.mix_usd,\n",
+        "       s.rate_usd, s.delta_usd, abs(s.mix_usd) AS abs_mix_usd\n",
+        "FROM cost_flux_slice s JOIN dim_comparison c ON c.comparison_id = s.comparison_id\n",
+        "ORDER BY abs(s.mix_usd) DESC\n"
+      ]
+    },
+    {
+      "name": "ds_mix_groups",
+      "displayName": "Mix by desk × product family",
+      "queryLines": [
+        "SELECT c.comparison_label, concat(s.desk_code, ' · ', s.product_family) AS desk_product,\n",
+        "       SUM(s.volume_usd) AS volume_usd, SUM(s.mix_usd) AS mix_usd, SUM(s.rate_usd) AS rate_usd\n",
+        "FROM cost_flux_slice s JOIN dim_comparison c ON c.comparison_id = s.comparison_id\n",
+        "GROUP BY c.comparison_label, concat(s.desk_code, ' · ', s.product_family)\n",
+        "HAVING abs(SUM(s.mix_usd)) >= 1000\n"
+      ]
+    },
+    {
+      "name": "ds_trades",
+      "displayName": "September executions — mix groups",
+      "queryLines": [
+        "SELECT e.trade_id, e.trade_date, e.desk_code, e.product_family, e.product, e.venue, e.capacity, e.cost_type, e.fee_id,\n",
+        "       e.volume, e.volume_unit, e.unit_rate, e.cost_currency, e.cost_lcy, e.cost_usd, e.counterparty_id,\n",
+        "       CASE WHEN e.desk_code = 'HKED' AND e.capacity = 'HOUSE' THEN 'PRX 50 futures booked to the house account'\n",
+        "            WHEN e.desk_code = 'AUCE' AND e.venue = 'SXA' THEN 'AU cash equities routed to Southern Cross (SXA)'\n",
+        "            ELSE 'Rest of the same volume group' END AS story_slice\n",
+        "FROM expected_cost_trade e\n",
+        "WHERE e.period = '2026-09' AND e.in_net_borne AND e.cost_type = 'EXCHANGE'\n",
+        "  AND ((e.desk_code = 'HKED' AND e.product_family = 'PRX50_FUT') OR (e.desk_code = 'AUCE' AND e.product_family = 'AU_CASH_EQ'))\n",
+        "ORDER BY e.cost_usd DESC\n"
+      ]
+    },
+    {
+      "name": "ds_vol",
+      "displayName": "PRX Volatility Index vs Equity Derivatives cost (daily)",
+      "queryLines": [
+        "WITH vi AS (\n",
+        "  SELECT trade_date, close_value AS prx_vol_index FROM silver.market_data\n",
+        "  WHERE index_code = 'PRXVI' AND trade_date BETWEEN DATE'2026-08-01' AND DATE'2026-09-30'),\n",
+        "ed AS (\n",
+        "  SELECT trade_date, SUM(net_borne_cost_usd) AS ed_exch_clearing_cost_usd FROM expected_cost_daily\n",
+        "  WHERE desk_code = 'HKED' AND cost_type IN ('EXCHANGE', 'CLEARING') AND trade_date BETWEEN DATE'2026-08-01' AND DATE'2026-09-30'\n",
+        "  GROUP BY trade_date)\n",
+        "SELECT COALESCE(vi.trade_date, ed.trade_date) AS trade_date, vi.prx_vol_index, ed.ed_exch_clearing_cost_usd\n",
+        "FROM vi FULL OUTER JOIN ed ON vi.trade_date = ed.trade_date\n"
+      ]
+    },
+    {
+      "name": "ds_recon_tbl",
+      "displayName": "Invoice reconciliation lines needing attention",
+      "queryLines": [
+        "SELECT service_period, COALESCE(vendor_name, vendor_id) AS vendor, legal_entity, cost_type, recon_status, variance_reason,\n",
+        "       expected_net_usd, IF(recon_status = 'PENDING_INVOICE', NULL, invoiced_net_usd) AS invoiced_net_usd,\n",
+        "       IF(recon_status = 'PENDING_INVOICE', NULL, variance_usd) AS variance_usd, invoice_ids, invoice_received_date,\n",
+        "       monthly_turnover_usd, CASE recon_status WHEN 'OVERBILLED' THEN 0 WHEN 'UNDERBILLED' THEN 1 ELSE 2 END AS status_rank\n",
+        "FROM invoice_recon WHERE recon_status <> 'MATCHED'\n",
+        "ORDER BY status_rank, service_period DESC, abs(variance_usd) DESC\n"
+      ]
+    },
+    {
+      "name": "ds_recon_line",
+      "displayName": "Broker C (Cobalt Securities) — August invoice by fee code",
+      "queryLines": [
+        "SELECT l.legal_entity, l.currency, l.fee_id, l.fee_description, l.contracted_rate, l.in_expected, l.in_invoice,\n",
+        "       l.expected_qty, l.invoiced_qty, l.expected_net, l.invoiced_net, l.invoiced_net - l.expected_net AS variance_lcy,\n",
+        "       l.expected_net * fx.rate_to_usd AS expected_net_usd, l.invoiced_net * fx.rate_to_usd AS invoiced_net_usd,\n",
+        "       (l.invoiced_net - l.expected_net) * fx.rate_to_usd AS variance_usd, l.invoice_ids,\n",
+        "       CASE WHEN l.in_invoice AND NOT l.in_expected THEN 'Billed — not the contracted rate for this volume'\n",
+        "            WHEN l.in_expected AND NOT l.in_invoice THEN 'Expected — not billed'\n",
+        "            ELSE 'Billed as expected' END AS line_status\n",
+        "FROM invoice_recon_line l JOIN silver.fx_monthly fx ON fx.currency = l.currency AND fx.period = l.service_period\n",
+        "WHERE l.vendor_id = 'B03' AND l.service_period = '2026-08' AND l.cost_type = 'BROKERAGE'\n",
+        "ORDER BY l.legal_entity, l.fee_id\n"
+      ]
+    },
+    {
+      "name": "ds_fails_trend",
+      "displayName": "Net fail cost by month",
+      "queryLines": [
+        "SELECT period AS month, 'Kestrel Asset Management · AUCE' AS fail_group,\n",
+        "       SUM(IF(counterparty_id = 'C001' AND desk_code = 'AUCE', net_cost_usd, 0D)) AS net_fail_cost_usd\n",
+        "FROM fail_cost_summary GROUP BY period\n",
+        "UNION ALL\n",
+        "SELECT period, 'All other fails', SUM(IF(counterparty_id = 'C001' AND desk_code = 'AUCE', 0D, net_cost_usd))\n",
+        "FROM fail_cost_summary GROUP BY period ORDER BY 1\n"
+      ]
+    },
+    {
+      "name": "ds_fee_cal",
+      "displayName": "Fee and regime calendar",
+      "queryLines": [
+        "SELECT event_date, event_type, status, COALESCE(vendor_name, vendor_id) AS vendor, product_family, description,\n",
+        "       monthly_impact_usd, fee_ids_before, fee_id_after, source_doc\n",
+        "FROM fee_calendar ORDER BY event_date\n"
+      ]
+    },
+    {
+      "name": "ds_tie",
+      "displayName": "Tie-out checks",
+      "queryLines": [
+        "SELECT check_type, check_name, expected, actual, passed, CASE WHEN passed THEN 'PASS' ELSE 'FAIL' END AS result,\n",
+        "       IF(passed, 1, 0) AS passed_flag, IF(passed, 0, 1) AS failed_flag, checked_at\n",
+        "FROM tie_out_results ORDER BY passed, check_type, check_name\n"
+      ]
+    },
+    {
+      "name": "ds_coverage",
+      "displayName": "GL mapping coverage by month",
+      "queryLines": [
+        "SELECT period AS month, SUM(IF(is_vendor_mapped, amount_usd, 0D)) / SUM(amount_usd) AS mapped_share,\n",
+        "       SUM(IF(is_vendor_mapped, 0D, amount_usd)) AS unmapped_usd\n",
+        "FROM gl_monthly WHERE in_net_borne GROUP BY period ORDER BY period\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "flux",
+      "displayName": "Flux",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "flux_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Trade Cost Explain — APAC Global Markets\n",
+                "\n",
+                "Net borne trade cost (US GAAP line *Commissions and floor brokerage*), explained driver by driver: volume, mix and rate at constant currency, then FX, settlement fails, fixed fees, timing / accrual and an unexplained residual — the bars add up to the change. Pick the comparison in the global **Filters** panel (default: September vs August 2026, the half-year close). "
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "flux_f_slice",
+            "queries": [
+              {
+                "name": "q_flux_slice",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "Headline Slice",
+                      "expression": "`Headline Slice`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_steps_slice",
+                "query": {
+                  "datasetName": "ds_steps",
+                  "fields": [
+                    {
+                      "name": "headline_slice",
+                      "expression": "`headline_slice`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Headline Slice",
+                    "displayName": "Headline slice",
+                    "queryName": "q_flux_slice"
+                  },
+                  {
+                    "fieldName": "headline_slice",
+                    "displayName": "Headline slice",
+                    "queryName": "q_steps_slice"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Headline slice"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "flux_f_business",
+            "queries": [
+              {
+                "name": "q_flux_bus",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "Business",
+                      "expression": "`Business`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_steps_bus",
+                "query": {
+                  "datasetName": "ds_steps",
+                  "fields": [
+                    {
+                      "name": "business",
+                      "expression": "`business`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Business",
+                    "displayName": "Business",
+                    "queryName": "q_flux_bus"
+                  },
+                  {
+                    "fieldName": "business",
+                    "displayName": "Business",
+                    "queryName": "q_steps_bus"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Business"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_prior",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "measure(Prior Period Cost)",
+                      "expression": "MEASURE(`Prior Period Cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Prior Period Cost)",
+                  "displayName": "Prior period cost",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Prior period cost"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_current",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "measure(Current Period Cost)",
+                      "expression": "MEASURE(`Current Period Cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Current Period Cost)",
+                  "displayName": "Current period cost",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Current period cost"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 5,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_change",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "measure(Cost Change)",
+                      "expression": "MEASURE(`Cost Change`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Cost Change)",
+                  "displayName": "Change",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Change"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 5,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_change_pct",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "measure(Cost Change Pct)",
+                      "expression": "MEASURE(`Cost Change Pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Cost Change Pct)",
+                  "displayName": "Change (%)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Change (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 5,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "flux_waterfall",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_steps",
+                  "fields": [
+                    {
+                      "name": "step",
+                      "expression": "`step`"
+                    },
+                    {
+                      "name": "sum(amount_usd)",
+                      "expression": "SUM(`amount_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "waterfall",
+              "encodings": {
+                "x": {
+                  "fieldName": "step",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Prior period",
+                        "Volume",
+                        "Mix",
+                        "Rate",
+                        "Fails",
+                        "Timing / accrual",
+                        "FX",
+                        "Fixed fees",
+                        "Unexplained"
+                      ]
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(amount_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "US$"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cost bridge — prior period to current period",
+                "showDescription": true,
+                "description": "Prior-period cost, then each effect in order; the last bar lands on current-period cost. Volume / mix / rate at prior-period FX; FX measured on every local-currency GL line."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 8,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "flux_by_driver",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_steps",
+                  "fields": [
+                    {
+                      "name": "step",
+                      "expression": "`step`"
+                    },
+                    {
+                      "name": "sum(amount_usd)",
+                      "expression": "SUM(`amount_usd`)"
+                    },
+                    {
+                      "name": "flux_class",
+                      "expression": "`flux_class`"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`step_order` > 0"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(amount_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Change (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "step",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Volume",
+                        "Mix",
+                        "Rate",
+                        "Fails",
+                        "Timing / accrual",
+                        "FX",
+                        "Fixed fees",
+                        "Unexplained"
+                      ]
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "flux_class",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Good (volume-driven)",
+                        "color": "#17A589"
+                      },
+                      {
+                        "value": "Controllable",
+                        "color": "#E15F41"
+                      },
+                      {
+                        "value": "External, timing & residual",
+                        "color": "#8C9BA5"
+                      },
+                      {
+                        "value": "Prior period",
+                        "color": "#1F4E79"
+                      }
+                    ]
+                  },
+                  "displayName": "Flux class"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Change by driver (adds up to the change)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 8,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "flux_slice_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "Headline Slice",
+                      "expression": "`Headline Slice`"
+                    },
+                    {
+                      "name": "measure(Prior Period Cost)",
+                      "expression": "MEASURE(`Prior Period Cost`)"
+                    },
+                    {
+                      "name": "measure(Current Period Cost)",
+                      "expression": "MEASURE(`Current Period Cost`)"
+                    },
+                    {
+                      "name": "measure(Cost Change)",
+                      "expression": "MEASURE(`Cost Change`)"
+                    },
+                    {
+                      "name": "measure(Volume Effect)",
+                      "expression": "MEASURE(`Volume Effect`)"
+                    },
+                    {
+                      "name": "measure(Mix Effect)",
+                      "expression": "MEASURE(`Mix Effect`)"
+                    },
+                    {
+                      "name": "measure(Rate Effect)",
+                      "expression": "MEASURE(`Rate Effect`)"
+                    },
+                    {
+                      "name": "measure(Fails Effect)",
+                      "expression": "MEASURE(`Fails Effect`)"
+                    },
+                    {
+                      "name": "measure(Timing Effect)",
+                      "expression": "MEASURE(`Timing Effect`)"
+                    },
+                    {
+                      "name": "measure(FX Effect)",
+                      "expression": "MEASURE(`FX Effect`)"
+                    },
+                    {
+                      "name": "measure(Fixed Fees Effect)",
+                      "expression": "MEASURE(`Fixed Fees Effect`)"
+                    },
+                    {
+                      "name": "measure(Unexplained)",
+                      "expression": "MEASURE(`Unexplained`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Headline Slice",
+                    "displayName": "Slice"
+                  },
+                  {
+                    "fieldName": "measure(Prior Period Cost)",
+                    "displayName": "Prior (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Current Period Cost)",
+                    "displayName": "Current (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Cost Change)",
+                    "displayName": "Change (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Volume Effect)",
+                    "displayName": "Volume",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Mix Effect)",
+                    "displayName": "Mix",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Rate Effect)",
+                    "displayName": "Rate",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Fails Effect)",
+                    "displayName": "Fails",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Timing Effect)",
+                    "displayName": "Timing",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(FX Effect)",
+                    "displayName": "FX",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Fixed Fees Effect)",
+                    "displayName": "Fixed",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Unexplained)",
+                    "displayName": "Unexplained",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Equity Derivatives exchange & clearing vs the rest"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "flux_desk_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "Business",
+                      "expression": "`Business`"
+                    },
+                    {
+                      "name": "Desk",
+                      "expression": "`Desk`"
+                    },
+                    {
+                      "name": "measure(Prior Period Cost)",
+                      "expression": "MEASURE(`Prior Period Cost`)"
+                    },
+                    {
+                      "name": "measure(Current Period Cost)",
+                      "expression": "MEASURE(`Current Period Cost`)"
+                    },
+                    {
+                      "name": "measure(Cost Change)",
+                      "expression": "MEASURE(`Cost Change`)"
+                    },
+                    {
+                      "name": "measure(Volume Effect)",
+                      "expression": "MEASURE(`Volume Effect`)"
+                    },
+                    {
+                      "name": "measure(Mix Effect)",
+                      "expression": "MEASURE(`Mix Effect`)"
+                    },
+                    {
+                      "name": "measure(Rate Effect)",
+                      "expression": "MEASURE(`Rate Effect`)"
+                    },
+                    {
+                      "name": "measure(Fails Effect)",
+                      "expression": "MEASURE(`Fails Effect`)"
+                    },
+                    {
+                      "name": "measure(Timing Effect)",
+                      "expression": "MEASURE(`Timing Effect`)"
+                    },
+                    {
+                      "name": "measure(FX Effect)",
+                      "expression": "MEASURE(`FX Effect`)"
+                    },
+                    {
+                      "name": "measure(Fixed Fees Effect)",
+                      "expression": "MEASURE(`Fixed Fees Effect`)"
+                    },
+                    {
+                      "name": "measure(Unexplained)",
+                      "expression": "MEASURE(`Unexplained`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Business",
+                    "displayName": "Business"
+                  },
+                  {
+                    "fieldName": "Desk",
+                    "displayName": "Desk"
+                  },
+                  {
+                    "fieldName": "measure(Prior Period Cost)",
+                    "displayName": "Prior (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Current Period Cost)",
+                    "displayName": "Current (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Cost Change)",
+                    "displayName": "Change (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Volume Effect)",
+                    "displayName": "Volume",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Mix Effect)",
+                    "displayName": "Mix",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Rate Effect)",
+                    "displayName": "Rate",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Fails Effect)",
+                    "displayName": "Fails",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Timing Effect)",
+                    "displayName": "Timing",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(FX Effect)",
+                    "displayName": "FX",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Fixed Fees Effect)",
+                    "displayName": "Fixed",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Unexplained)",
+                    "displayName": "Unexplained",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "By business and desk"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "flux_by_market",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_steps",
+                  "fields": [
+                    {
+                      "name": "market",
+                      "expression": "`market`"
+                    },
+                    {
+                      "name": "sum(amount_usd)",
+                      "expression": "SUM(`amount_usd`)"
+                    },
+                    {
+                      "name": "step",
+                      "expression": "`step`"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`step_order` > 0"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "market",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(amount_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Change (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "step",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Driver"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Change by market and driver"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 26,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "flux_by_currency",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "Currency",
+                      "expression": "`Currency`"
+                    },
+                    {
+                      "name": "measure(Cost Change)",
+                      "expression": "MEASURE(`Cost Change`)"
+                    },
+                    {
+                      "name": "measure(FX Effect)",
+                      "expression": "MEASURE(`FX Effect`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Currency",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "measure(Cost Change)",
+                      "displayName": "Change (US$)"
+                    },
+                    {
+                      "fieldName": "measure(FX Effect)",
+                      "displayName": "of which FX (US$)"
+                    }
+                  ],
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Local-currency drill: change and FX effect by currency"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 26,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "good_bad",
+      "displayName": "Good vs bad flux",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "gb_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Good vs bad flux\n",
+                "\n",
+                "**Good** = volume-driven, matched by activity and revenue. **Controllable** = mix (routing / booking) + settlement fails — what Operations and the desks can fix. **External, timing & residual** = rate, FX, timing / accrual, fixed fees, unexplained. "
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_good",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "measure(Good Flux)",
+                      "expression": "MEASURE(`Good Flux`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Good Flux)",
+                  "displayName": "Good flux — volume-driven",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Good flux — volume-driven"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_good_pct",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "measure(Good Flux Share)",
+                      "expression": "MEASURE(`Good Flux Share`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Good Flux Share)",
+                  "displayName": "Good share of the change",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Good share of the change"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_ctrl",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "measure(Controllable Flux)",
+                      "expression": "MEASURE(`Controllable Flux`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Controllable Flux)",
+                  "displayName": "Controllable flux — mix + fails",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Controllable flux — mix + fails"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_ctrl_pct",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "measure(Controllable Flux Share)",
+                      "expression": "MEASURE(`Controllable Flux Share`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Controllable Flux Share)",
+                  "displayName": "Controllable share of the change",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Controllable share of the change"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_by_driver",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_steps",
+                  "fields": [
+                    {
+                      "name": "step",
+                      "expression": "`step`"
+                    },
+                    {
+                      "name": "sum(amount_usd)",
+                      "expression": "SUM(`amount_usd`)"
+                    },
+                    {
+                      "name": "flux_class",
+                      "expression": "`flux_class`"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`step_order` > 0"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "step",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Volume",
+                        "Mix",
+                        "Rate",
+                        "Fails",
+                        "Timing / accrual",
+                        "FX",
+                        "Fixed fees",
+                        "Unexplained"
+                      ]
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(amount_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Change (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "flux_class",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Good (volume-driven)",
+                        "color": "#17A589"
+                      },
+                      {
+                        "value": "Controllable",
+                        "color": "#E15F41"
+                      },
+                      {
+                        "value": "External, timing & residual",
+                        "color": "#8C9BA5"
+                      },
+                      {
+                        "value": "Prior period",
+                        "color": "#1F4E79"
+                      }
+                    ]
+                  },
+                  "displayName": "Flux class"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Change by driver"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_by_class",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_steps",
+                  "fields": [
+                    {
+                      "name": "flux_class",
+                      "expression": "`flux_class`"
+                    },
+                    {
+                      "name": "sum(amount_usd)",
+                      "expression": "SUM(`amount_usd`)"
+                    },
+                    {
+                      "name": "flux_class",
+                      "expression": "`flux_class`"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`step_order` > 0"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "flux_class",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Good (volume-driven)",
+                        "Controllable",
+                        "External, timing & residual"
+                      ]
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(amount_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Change (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "flux_class",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Good (volume-driven)",
+                        "color": "#17A589"
+                      },
+                      {
+                        "value": "Controllable",
+                        "color": "#E15F41"
+                      },
+                      {
+                        "value": "External, timing & residual",
+                        "color": "#8C9BA5"
+                      },
+                      {
+                        "value": "Prior period",
+                        "color": "#1F4E79"
+                      }
+                    ]
+                  },
+                  "displayName": "Flux class"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Change by flux class"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_cost_vs_revenue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_trend",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    },
+                    {
+                      "name": "measure(Trade Cost)",
+                      "expression": "MEASURE(`Trade Cost`)"
+                    },
+                    {
+                      "name": "measure(Revenue)",
+                      "expression": "MEASURE(`Revenue`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "Month",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "measure(Trade Cost)",
+                        "displayName": "Net borne trade cost (US$)"
+                      }
+                    ]
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "measure(Revenue)",
+                        "displayName": "Revenue (US$)"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Trade cost vs revenue — 13 months",
+                "showDescription": true,
+                "description": "Volume-driven cost moves with revenue; September's spike is matched by revenue."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_vol_vs_ed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_vol",
+                  "fields": [
+                    {
+                      "name": "trade_date",
+                      "expression": "`trade_date`"
+                    },
+                    {
+                      "name": "sum(ed_exch_clearing_cost_usd)",
+                      "expression": "SUM(`ed_exch_clearing_cost_usd`)"
+                    },
+                    {
+                      "name": "avg(prx_vol_index)",
+                      "expression": "AVG(`prx_vol_index`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "trade_date",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "sum(ed_exch_clearing_cost_usd)",
+                        "displayName": "Equity Derivatives exchange & clearing cost (US$)"
+                      }
+                    ]
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "avg(prx_vol_index)",
+                        "displayName": "PRX Volatility Index"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Volatility spike drives Equity Derivatives activity (Aug–Sep 2026, daily)",
+                "showDescription": true,
+                "description": "PRX Volatility Index (VHSI-like) vs daily expected exchange and clearing cost of HK Equity Derivatives."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "gb_bps_vs_plan",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_trend",
+                  "fields": [
+                    {
+                      "name": "Desk",
+                      "expression": "`Desk`"
+                    },
+                    {
+                      "name": "measure(Cost bps of Revenue)",
+                      "expression": "MEASURE(`Cost bps of Revenue`)"
+                    },
+                    {
+                      "name": "measure(Plan Cost bps of Revenue)",
+                      "expression": "MEASURE(`Plan Cost bps of Revenue`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`Month` = '2026-09'"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Desk",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "measure(Cost bps of Revenue)",
+                      "displayName": "Actual (bps of revenue)"
+                    },
+                    {
+                      "fieldName": "measure(Plan Cost bps of Revenue)",
+                      "displayName": "Plan (bps of revenue)"
+                    }
+                  ],
+                  "format": {
+                    "type": "number",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Trade cost as bps of revenue vs plan — September 2026"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 17,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "drill",
+      "displayName": "Drill to trade",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "drill_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Drill to the trade\n",
+                "\n",
+                "Mix is computed inside groups that share a volume unit (cost type × fee basis × product family). Two groups carry the September mix: **HK Equity Derivatives · PRX 50 Index Futures** (contracts booked to the house account at HK$10.00 instead of the registered market-maker account at HK$5.00) and **Australia Cash Equities** (smart-order-router change: flow from Tasman Alternative Market at 0.20 bp to Southern Cross at 0.60 bp). "
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "drill_mix_groups",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_mix_groups",
+                  "fields": [
+                    {
+                      "name": "desk_product",
+                      "expression": "`desk_product`"
+                    },
+                    {
+                      "name": "sum(mix_usd)",
+                      "expression": "SUM(`mix_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(mix_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Mix effect (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "desk_product",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Mix by desk × product family"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "drill_mix_slices",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_slice",
+                  "fields": [
+                    {
+                      "name": "venue_capacity",
+                      "expression": "`venue_capacity`"
+                    },
+                    {
+                      "name": "sum(mix_usd)",
+                      "expression": "SUM(`mix_usd`)"
+                    },
+                    {
+                      "name": "desk_product",
+                      "expression": "`desk_product`"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`desk_product` IN ('HKED · PRX50_FUT', 'AUCE · AU_CASH_EQ')"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(mix_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Mix effect (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "venue_capacity",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "desk_product",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Desk · product"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Mix by venue · capacity within those groups"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "drill_slice_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_slice",
+                  "fields": [
+                    {
+                      "name": "desk_code",
+                      "expression": "`desk_code`"
+                    },
+                    {
+                      "name": "product_family",
+                      "expression": "`product_family`"
+                    },
+                    {
+                      "name": "cost_type",
+                      "expression": "`cost_type`"
+                    },
+                    {
+                      "name": "vendor_id",
+                      "expression": "`vendor_id`"
+                    },
+                    {
+                      "name": "venue",
+                      "expression": "`venue`"
+                    },
+                    {
+                      "name": "capacity",
+                      "expression": "`capacity`"
+                    },
+                    {
+                      "name": "volume_unit",
+                      "expression": "`volume_unit`"
+                    },
+                    {
+                      "name": "v0",
+                      "expression": "`v0`"
+                    },
+                    {
+                      "name": "v1",
+                      "expression": "`v1`"
+                    },
+                    {
+                      "name": "unit_cost0_usd",
+                      "expression": "`unit_cost0_usd`"
+                    },
+                    {
+                      "name": "unit_cost1_cc_usd",
+                      "expression": "`unit_cost1_cc_usd`"
+                    },
+                    {
+                      "name": "volume_usd",
+                      "expression": "`volume_usd`"
+                    },
+                    {
+                      "name": "mix_usd",
+                      "expression": "`mix_usd`"
+                    },
+                    {
+                      "name": "rate_usd",
+                      "expression": "`rate_usd`"
+                    },
+                    {
+                      "name": "delta_usd",
+                      "expression": "`delta_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "desk_code",
+                    "displayName": "Desk"
+                  },
+                  {
+                    "fieldName": "product_family",
+                    "displayName": "Product family"
+                  },
+                  {
+                    "fieldName": "cost_type",
+                    "displayName": "Cost type"
+                  },
+                  {
+                    "fieldName": "vendor_id",
+                    "displayName": "Vendor"
+                  },
+                  {
+                    "fieldName": "venue",
+                    "displayName": "Venue"
+                  },
+                  {
+                    "fieldName": "capacity",
+                    "displayName": "Capacity"
+                  },
+                  {
+                    "fieldName": "volume_unit",
+                    "displayName": "Volume unit"
+                  },
+                  {
+                    "fieldName": "v0",
+                    "displayName": "Prior volume",
+                    "format": {
+                      "type": "number",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "v1",
+                    "displayName": "Current volume",
+                    "format": {
+                      "type": "number",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "unit_cost0_usd",
+                    "displayName": "Unit cost prior (US$)",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 6
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "unit_cost1_cc_usd",
+                    "displayName": "Unit cost current, const. FX (US$)",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 6
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "volume_usd",
+                    "displayName": "Volume (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "mix_usd",
+                    "displayName": "Mix (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "rate_usd",
+                    "displayName": "Rate (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "delta_usd",
+                    "displayName": "Change (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Driver slices (largest mix first)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "drill_f_story",
+            "queries": [
+              {
+                "name": "q_trades_story",
+                "query": {
+                  "datasetName": "ds_trades",
+                  "fields": [
+                    {
+                      "name": "story_slice",
+                      "expression": "`story_slice`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "story_slice",
+                    "displayName": "Story slice",
+                    "queryName": "q_trades_story"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Story slice"
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "PRX 50 futures booked to the house account"
+                      },
+                      {
+                        "value": "AU cash equities routed to Southern Cross (SXA)"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "drill_f_desk",
+            "queries": [
+              {
+                "name": "q_trades_desk",
+                "query": {
+                  "datasetName": "ds_trades",
+                  "fields": [
+                    {
+                      "name": "desk_code",
+                      "expression": "`desk_code`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "desk_code",
+                    "displayName": "Desk",
+                    "queryName": "q_trades_desk"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Desk"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 16,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "drill_f_venue",
+            "queries": [
+              {
+                "name": "q_trades_venue",
+                "query": {
+                  "datasetName": "ds_trades",
+                  "fields": [
+                    {
+                      "name": "venue",
+                      "expression": "`venue`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "venue",
+                    "displayName": "Venue",
+                    "queryName": "q_trades_venue"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Venue"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 16,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "drill_f_capacity",
+            "queries": [
+              {
+                "name": "q_trades_cap",
+                "query": {
+                  "datasetName": "ds_trades",
+                  "fields": [
+                    {
+                      "name": "capacity",
+                      "expression": "`capacity`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "capacity",
+                    "displayName": "Capacity",
+                    "queryName": "q_trades_cap"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Capacity"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 16,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "drill_trades",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_trades",
+                  "fields": [
+                    {
+                      "name": "trade_id",
+                      "expression": "`trade_id`"
+                    },
+                    {
+                      "name": "trade_date",
+                      "expression": "`trade_date`"
+                    },
+                    {
+                      "name": "desk_code",
+                      "expression": "`desk_code`"
+                    },
+                    {
+                      "name": "product",
+                      "expression": "`product`"
+                    },
+                    {
+                      "name": "venue",
+                      "expression": "`venue`"
+                    },
+                    {
+                      "name": "capacity",
+                      "expression": "`capacity`"
+                    },
+                    {
+                      "name": "fee_id",
+                      "expression": "`fee_id`"
+                    },
+                    {
+                      "name": "volume",
+                      "expression": "`volume`"
+                    },
+                    {
+                      "name": "volume_unit",
+                      "expression": "`volume_unit`"
+                    },
+                    {
+                      "name": "unit_rate",
+                      "expression": "`unit_rate`"
+                    },
+                    {
+                      "name": "cost_currency",
+                      "expression": "`cost_currency`"
+                    },
+                    {
+                      "name": "cost_lcy",
+                      "expression": "`cost_lcy`"
+                    },
+                    {
+                      "name": "cost_usd",
+                      "expression": "`cost_usd`"
+                    },
+                    {
+                      "name": "story_slice",
+                      "expression": "`story_slice`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "trade_id",
+                    "displayName": "Trade"
+                  },
+                  {
+                    "fieldName": "trade_date",
+                    "displayName": "Trade date"
+                  },
+                  {
+                    "fieldName": "desk_code",
+                    "displayName": "Desk"
+                  },
+                  {
+                    "fieldName": "product",
+                    "displayName": "Product"
+                  },
+                  {
+                    "fieldName": "venue",
+                    "displayName": "Venue"
+                  },
+                  {
+                    "fieldName": "capacity",
+                    "displayName": "Capacity"
+                  },
+                  {
+                    "fieldName": "fee_id",
+                    "displayName": "Fee code"
+                  },
+                  {
+                    "fieldName": "volume",
+                    "displayName": "Volume",
+                    "format": {
+                      "type": "number",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "volume_unit",
+                    "displayName": "Unit"
+                  },
+                  {
+                    "fieldName": "unit_rate",
+                    "displayName": "Contracted rate (LCY / unit)",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 6
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "cost_currency",
+                    "displayName": "CCY"
+                  },
+                  {
+                    "fieldName": "cost_lcy",
+                    "displayName": "Exchange fee (LCY)",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "cost_usd",
+                    "displayName": "Exchange fee (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "story_slice",
+                    "displayName": "Story slice"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "September 2026 executions behind the mix (exchange fees)",
+                "showDescription": true,
+                "description": "One click from the ledger line to the trades: each row is an execution × the contracted exchange fee."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "invoice",
+      "displayName": "Invoice vs expected",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "inv_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Invoice vs expected\n",
+                "\n",
+                "Expected cost = every execution × the contracted rate, net of volume-tier rebates. Vendor invoices arrive after month end, so at the September close the latest reconcilable month is **August** — Cobalt Securities' (*Broker C*) August invoice arrived on 28 September. "
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "inv_f_period",
+            "queries": [
+              {
+                "name": "q_recon_period",
+                "query": {
+                  "datasetName": "ds_recon",
+                  "fields": [
+                    {
+                      "name": "Service Period",
+                      "expression": "`Service Period`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_recon_tbl_period",
+                "query": {
+                  "datasetName": "ds_recon_tbl",
+                  "fields": [
+                    {
+                      "name": "service_period",
+                      "expression": "`service_period`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Service Period",
+                    "displayName": "Service period",
+                    "queryName": "q_recon_period"
+                  },
+                  {
+                    "fieldName": "service_period",
+                    "displayName": "Service period",
+                    "queryName": "q_recon_tbl_period"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Service period"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "inv_note",
+            "multilineTextboxSpec": {
+              "lines": [
+                "**Over-billing sits outside the September bridge** — it is a billing-correction claim on August, and the September accrual re-bases to expected cost automatically."
+              ]
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 8,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "inv_kpi_over",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recon",
+                  "fields": [
+                    {
+                      "name": "measure(Overbilled Amount)",
+                      "expression": "MEASURE(`Overbilled Amount`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`Service Period` = '2026-08'"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Overbilled Amount)",
+                  "displayName": "Over-billed — August 2026 invoices",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Over-billed — August 2026 invoices"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "inv_kpi_lines",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recon",
+                  "fields": [
+                    {
+                      "name": "measure(Lines With Variance)",
+                      "expression": "MEASURE(`Lines With Variance`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Lines With Variance)",
+                  "displayName": "Lines outside tolerance (all months)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Lines outside tolerance (all months)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "inv_kpi_pending",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recon",
+                  "fields": [
+                    {
+                      "name": "measure(Reconciled Lines)",
+                      "expression": "MEASURE(`Reconciled Lines`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`Recon Status` = 'PENDING_INVOICE'"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Reconciled Lines)",
+                  "displayName": "Lines awaiting the vendor invoice"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Lines awaiting the vendor invoice"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 4,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "inv_by_vendor",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recon",
+                  "fields": [
+                    {
+                      "name": "Vendor",
+                      "expression": "`Vendor`"
+                    },
+                    {
+                      "name": "measure(Invoice Variance)",
+                      "expression": "MEASURE(`Invoice Variance`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`Recon Status` IN ('OVERBILLED', 'UNDERBILLED')"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "measure(Invoice Variance)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Invoice variance (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "Vendor",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Invoice variance by vendor (over / under billing)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "inv_broker_c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recon_line",
+                  "fields": [
+                    {
+                      "name": "legal_entity",
+                      "expression": "`legal_entity`"
+                    },
+                    {
+                      "name": "fee_id",
+                      "expression": "`fee_id`"
+                    },
+                    {
+                      "name": "fee_description",
+                      "expression": "`fee_description`"
+                    },
+                    {
+                      "name": "line_status",
+                      "expression": "`line_status`"
+                    },
+                    {
+                      "name": "expected_net_usd",
+                      "expression": "`expected_net_usd`"
+                    },
+                    {
+                      "name": "invoiced_net_usd",
+                      "expression": "`invoiced_net_usd`"
+                    },
+                    {
+                      "name": "variance_usd",
+                      "expression": "`variance_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "legal_entity",
+                    "displayName": "Entity"
+                  },
+                  {
+                    "fieldName": "fee_id",
+                    "displayName": "Fee code"
+                  },
+                  {
+                    "fieldName": "fee_description",
+                    "displayName": "Fee line"
+                  },
+                  {
+                    "fieldName": "line_status",
+                    "displayName": "Status"
+                  },
+                  {
+                    "fieldName": "expected_net_usd",
+                    "displayName": "Expected (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "invoiced_net_usd",
+                    "displayName": "Invoiced (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "variance_usd",
+                    "displayName": "Variance (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Broker C (Cobalt Securities) — August commission by fee code",
+                "showDescription": true,
+                "description": "Billed at the standard 3.0 bp tier; August turnover of US$1.70bn qualified for tier 2 (2.5 bp)."
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "inv_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recon_tbl",
+                  "fields": [
+                    {
+                      "name": "service_period",
+                      "expression": "`service_period`"
+                    },
+                    {
+                      "name": "vendor",
+                      "expression": "`vendor`"
+                    },
+                    {
+                      "name": "legal_entity",
+                      "expression": "`legal_entity`"
+                    },
+                    {
+                      "name": "cost_type",
+                      "expression": "`cost_type`"
+                    },
+                    {
+                      "name": "recon_status",
+                      "expression": "`recon_status`"
+                    },
+                    {
+                      "name": "expected_net_usd",
+                      "expression": "`expected_net_usd`"
+                    },
+                    {
+                      "name": "invoiced_net_usd",
+                      "expression": "`invoiced_net_usd`"
+                    },
+                    {
+                      "name": "variance_usd",
+                      "expression": "`variance_usd`"
+                    },
+                    {
+                      "name": "variance_reason",
+                      "expression": "`variance_reason`"
+                    },
+                    {
+                      "name": "invoice_received_date",
+                      "expression": "`invoice_received_date`"
+                    },
+                    {
+                      "name": "invoice_ids",
+                      "expression": "`invoice_ids`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "service_period",
+                    "displayName": "Service period"
+                  },
+                  {
+                    "fieldName": "vendor",
+                    "displayName": "Vendor"
+                  },
+                  {
+                    "fieldName": "legal_entity",
+                    "displayName": "Entity"
+                  },
+                  {
+                    "fieldName": "cost_type",
+                    "displayName": "Cost type"
+                  },
+                  {
+                    "fieldName": "recon_status",
+                    "displayName": "Status"
+                  },
+                  {
+                    "fieldName": "expected_net_usd",
+                    "displayName": "Expected (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "invoiced_net_usd",
+                    "displayName": "Invoiced (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "variance_usd",
+                    "displayName": "Variance (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "variance_reason",
+                    "displayName": "Reason"
+                  },
+                  {
+                    "fieldName": "invoice_received_date",
+                    "displayName": "Received"
+                  },
+                  {
+                    "fieldName": "invoice_ids",
+                    "displayName": "Invoices"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Reconciliation lines needing attention"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "fails",
+      "displayName": "Fails",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "fails_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Settlement fails\n",
+                "\n",
+                "Fail cost accrues daily from fail ageing using each market's rule (Southern Cross: 0.10% of the shortfall per business day, A$100–5,000, buy-in after 5 days), net of client recharges. Funding and borrow costs are shown separately. "
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_f_month",
+            "queries": [
+              {
+                "name": "q_fails_month",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "Month",
+                      "expression": "`Month`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Month",
+                    "displayName": "Month",
+                    "queryName": "q_fails_month"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Month"
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "2026-09"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_note",
+            "multilineTextboxSpec": {
+              "lines": [
+                "**September:** the increase is concentrated in **Australia Cash Equities** with **Kestrel Asset Management** — root cause a Meridian SSI static-data mismatch after Kestrel changed custodian."
+              ]
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 8,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_kpi_net",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "measure(Net Fail Cost)",
+                      "expression": "MEASURE(`Net Fail Cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Net Fail Cost)",
+                  "displayName": "Net fail cost",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Net fail cost"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_kpi_n",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "measure(Failed Settlements)",
+                      "expression": "MEASURE(`Failed Settlements`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Failed Settlements)",
+                  "displayName": "Failed settlements"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Failed settlements"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_kpi_funding",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "measure(Funding Cost)",
+                      "expression": "MEASURE(`Funding Cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Funding Cost)",
+                  "displayName": "Funding cost (shown separately)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Funding cost (shown separately)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_kpi_borrow",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "measure(Borrow Cost)",
+                      "expression": "MEASURE(`Borrow Cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Borrow Cost)",
+                  "displayName": "Borrow cost (shown separately)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Borrow cost (shown separately)"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 4,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_by_cpty",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "Counterparty",
+                      "expression": "`Counterparty`"
+                    },
+                    {
+                      "name": "measure(Net Fail Cost)",
+                      "expression": "MEASURE(`Net Fail Cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "measure(Net Fail Cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Net fail cost (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "Counterparty",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "By counterparty"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_by_cause",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "Root Cause",
+                      "expression": "`Root Cause`"
+                    },
+                    {
+                      "name": "measure(Net Fail Cost)",
+                      "expression": "MEASURE(`Net Fail Cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "measure(Net Fail Cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Net fail cost (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "Root Cause",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "By root cause"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 7,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_by_location",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "Settlement Location",
+                      "expression": "`Settlement Location`"
+                    },
+                    {
+                      "name": "measure(Net Fail Cost)",
+                      "expression": "MEASURE(`Net Fail Cost`)"
+                    },
+                    {
+                      "name": "Desk",
+                      "expression": "`Desk`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Settlement Location",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Net Fail Cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Net fail cost (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "Desk",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Desk"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "By market (depository / clearing house) and desk"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails_trend",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "sum(net_fail_cost_usd)",
+                      "expression": "SUM(`net_fail_cost_usd`)"
+                    },
+                    {
+                      "name": "fail_group",
+                      "expression": "`fail_group`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(net_fail_cost_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Net fail cost (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "fail_group",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Kestrel Asset Management · AUCE",
+                        "color": "#E15F41"
+                      },
+                      {
+                        "value": "All other fails",
+                        "color": "#8C9BA5"
+                      }
+                    ]
+                  },
+                  "displayName": "Fails"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Net fail cost by month"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 13,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "fails_fix_list",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fails",
+                  "fields": [
+                    {
+                      "name": "Counterparty",
+                      "expression": "`Counterparty`"
+                    },
+                    {
+                      "name": "Desk",
+                      "expression": "`Desk`"
+                    },
+                    {
+                      "name": "Legal Entity",
+                      "expression": "`Legal Entity`"
+                    },
+                    {
+                      "name": "Market",
+                      "expression": "`Market`"
+                    },
+                    {
+                      "name": "Settlement Location",
+                      "expression": "`Settlement Location`"
+                    },
+                    {
+                      "name": "Root Cause",
+                      "expression": "`Root Cause`"
+                    },
+                    {
+                      "name": "measure(Failed Settlements)",
+                      "expression": "MEASURE(`Failed Settlements`)"
+                    },
+                    {
+                      "name": "measure(Fail Days)",
+                      "expression": "MEASURE(`Fail Days`)"
+                    },
+                    {
+                      "name": "measure(Buy-ins)",
+                      "expression": "MEASURE(`Buy-ins`)"
+                    },
+                    {
+                      "name": "measure(Net Fail Cost)",
+                      "expression": "MEASURE(`Net Fail Cost`)"
+                    },
+                    {
+                      "name": "measure(Recharged to Clients)",
+                      "expression": "MEASURE(`Recharged to Clients`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "DESC",
+                      "expression": "MEASURE(`Net Fail Cost`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Counterparty",
+                    "displayName": "Counterparty"
+                  },
+                  {
+                    "fieldName": "Desk",
+                    "displayName": "Desk"
+                  },
+                  {
+                    "fieldName": "Legal Entity",
+                    "displayName": "Entity"
+                  },
+                  {
+                    "fieldName": "Market",
+                    "displayName": "Market"
+                  },
+                  {
+                    "fieldName": "Settlement Location",
+                    "displayName": "Settlement location"
+                  },
+                  {
+                    "fieldName": "Root Cause",
+                    "displayName": "Root cause"
+                  },
+                  {
+                    "fieldName": "measure(Failed Settlements)",
+                    "displayName": "Failed"
+                  },
+                  {
+                    "fieldName": "measure(Fail Days)",
+                    "displayName": "Fail days"
+                  },
+                  {
+                    "fieldName": "measure(Buy-ins)",
+                    "displayName": "Buy-ins"
+                  },
+                  {
+                    "fieldName": "measure(Net Fail Cost)",
+                    "displayName": "Net fail cost (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "measure(Recharged to Clients)",
+                    "displayName": "Recharged (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Operations fix list (largest net fail cost first)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 12,
+            "height": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "controls",
+      "displayName": "Fee calendar & controls",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "ctl_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Fee calendar & controls\n",
+                "\n",
+                "Announced fee changes, discounts and waivers ending, and regime changes — with their monthly cost at current volumes. The tie-out gate proves the bridge adds up after every build (control evidence). "
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "ctl_fee_calendar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fee_cal",
+                  "fields": [
+                    {
+                      "name": "event_date",
+                      "expression": "`event_date`"
+                    },
+                    {
+                      "name": "event_type",
+                      "expression": "`event_type`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "vendor",
+                      "expression": "`vendor`"
+                    },
+                    {
+                      "name": "product_family",
+                      "expression": "`product_family`"
+                    },
+                    {
+                      "name": "description",
+                      "expression": "`description`"
+                    },
+                    {
+                      "name": "monthly_impact_usd",
+                      "expression": "`monthly_impact_usd`"
+                    },
+                    {
+                      "name": "source_doc",
+                      "expression": "`source_doc`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "event_date",
+                    "displayName": "Effective"
+                  },
+                  {
+                    "fieldName": "event_type",
+                    "displayName": "Event"
+                  },
+                  {
+                    "fieldName": "status",
+                    "displayName": "Status"
+                  },
+                  {
+                    "fieldName": "vendor",
+                    "displayName": "Vendor"
+                  },
+                  {
+                    "fieldName": "product_family",
+                    "displayName": "Product family"
+                  },
+                  {
+                    "fieldName": "description",
+                    "displayName": "Fee line"
+                  },
+                  {
+                    "fieldName": "monthly_impact_usd",
+                    "displayName": "Monthly impact at current volumes (US$)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "source_doc",
+                    "displayName": "Rate card"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Fee and regime calendar"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "ctl_passed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_tie",
+                  "fields": [
+                    {
+                      "name": "sum(passed_flag)",
+                      "expression": "SUM(`passed_flag`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(passed_flag)",
+                  "displayName": "Tie-out checks passed"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Tie-out checks passed"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "ctl_failed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_tie",
+                  "fields": [
+                    {
+                      "name": "sum(failed_flag)",
+                      "expression": "SUM(`failed_flag`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(failed_flag)",
+                  "displayName": "Tie-out checks failed"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Tie-out checks failed"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 8,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "ctl_coverage",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_coverage",
+                  "fields": [
+                    {
+                      "name": "avg(mapped_share)",
+                      "expression": "AVG(`mapped_share`)"
+                    }
+                  ],
+                  "disaggregated": false,
+                  "filters": [
+                    {
+                      "expression": "`month` = '2026-09'"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(mapped_share)",
+                  "displayName": "GL mapped to a counterparty — Sep 2026",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "GL mapped to a counterparty — Sep 2026"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 8,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "ctl_tie_out",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_tie",
+                  "fields": [
+                    {
+                      "name": "result",
+                      "expression": "`result`"
+                    },
+                    {
+                      "name": "check_type",
+                      "expression": "`check_type`"
+                    },
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "expected",
+                      "expression": "`expected`"
+                    },
+                    {
+                      "name": "actual",
+                      "expression": "`actual`"
+                    },
+                    {
+                      "name": "checked_at",
+                      "expression": "`checked_at`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "result",
+                    "displayName": "Result"
+                  },
+                  {
+                    "fieldName": "check_type",
+                    "displayName": "Type"
+                  },
+                  {
+                    "fieldName": "check_name",
+                    "displayName": "Check"
+                  },
+                  {
+                    "fieldName": "expected",
+                    "displayName": "Expected",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "actual",
+                    "displayName": "Actual",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 3
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "checked_at",
+                    "displayName": "Checked at"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Tie-out results (gold.tie_out_results)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 8,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "ctl_unmapped",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_coverage",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "sum(unmapped_usd)",
+                      "expression": "SUM(`unmapped_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(unmapped_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Unmapped GL (US$)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "GL booked to unmapped AP vendors (the unexplained residual)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 11,
+            "width": 4,
+            "height": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "g_comparison",
+            "queries": [
+              {
+                "name": "q_g_flux",
+                "query": {
+                  "datasetName": "ds_flux",
+                  "fields": [
+                    {
+                      "name": "Comparison Label",
+                      "expression": "`Comparison Label`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_g_steps",
+                "query": {
+                  "datasetName": "ds_steps",
+                  "fields": [
+                    {
+                      "name": "comparison_label",
+                      "expression": "`comparison_label`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_g_slice",
+                "query": {
+                  "datasetName": "ds_slice",
+                  "fields": [
+                    {
+                      "name": "comparison_label",
+                      "expression": "`comparison_label`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_g_mix",
+                "query": {
+                  "datasetName": "ds_mix_groups",
+                  "fields": [
+                    {
+                      "name": "comparison_label",
+                      "expression": "`comparison_label`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Comparison Label",
+                    "displayName": "Comparison",
+                    "queryName": "q_g_flux"
+                  },
+                  {
+                    "fieldName": "comparison_label",
+                    "displayName": "Comparison",
+                    "queryName": "q_g_steps"
+                  },
+                  {
+                    "fieldName": "comparison_label",
+                    "displayName": "Comparison",
+                    "queryName": "q_g_slice"
+                  },
+                  {
+                    "fieldName": "comparison_label",
+                    "displayName": "Comparison",
+                    "queryName": "q_g_mix"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Comparison"
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "Sep 2026 vs Aug 2026"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F7F9FB",
+        "dark": "#1B232A"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "fontColor": {
+        "light": "#13212E",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#1F4E79",
+        "#F5A623",
+        "#17A589",
+        "#8E6BBF",
+        "#E15F41",
+        "#4FA3D9",
+        "#B5835A",
+        "#8C9BA5"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

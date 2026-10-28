@@ -1,0 +1,110 @@
+# Fee-schedule extraction: rate-card PDFs (EN / Traditional Chinese / Korean) → ai_parse_document → ai_extract v2.1
+# (confidence scores) → simulated analyst review → approved cost_explain.silver.fee_schedule (+ silver.fail_cost_rule).
+# Deterministic for the pipeline: approved rates always equal the canonical rate cards; the review is the control.
+resources:
+  jobs:
+    ce_fee_extraction:
+      name: ce_fee_extraction
+      description: >-
+        Rate-card PDFs → ai_parse_document → ai_extract (per-field confidence) → analyst review → approved fee schedule.
+        PDFs are rendered from src/datagen/config/rate_cards.yaml by src/rate_cards/render.py and uploaded to
+        /Volumes/<catalog>/landing/rate_cards.
+      tags:
+        project: trade-cost-explain
+        stream: fee-extraction
+      max_concurrent_runs: 1
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: analyst
+          default: ava.chen@meridian-demo.example
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - pyyaml>=6
+      tasks:
+        - task_key: parse_documents
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/extraction/fee_extraction.py
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --analyst
+              - "{{job.parameters.analyst}}"
+              - --rate_cards_yaml
+              - ${workspace.file_path}/src/datagen/config/rate_cards.yaml
+              - --src_dir
+              - ${workspace.file_path}/src/extraction
+              - --step
+              - parse
+
+        - task_key: extract_fee_lines
+          depends_on: [{task_key: parse_documents}]
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/extraction/fee_extraction.py
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --analyst
+              - "{{job.parameters.analyst}}"
+              - --rate_cards_yaml
+              - ${workspace.file_path}/src/datagen/config/rate_cards.yaml
+              - --src_dir
+              - ${workspace.file_path}/src/extraction
+              - --step
+              - extract
+
+        - task_key: analyst_review
+          depends_on: [{task_key: extract_fee_lines}]
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/extraction/fee_extraction.py
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --analyst
+              - "{{job.parameters.analyst}}"
+              - --rate_cards_yaml
+              - ${workspace.file_path}/src/datagen/config/rate_cards.yaml
+              - --src_dir
+              - ${workspace.file_path}/src/extraction
+              - --step
+              - review
+
+        - task_key: publish_fee_schedule
+          depends_on: [{task_key: analyst_review}]
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/extraction/fee_extraction.py
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --analyst
+              - "{{job.parameters.analyst}}"
+              - --rate_cards_yaml
+              - ${workspace.file_path}/src/datagen/config/rate_cards.yaml
+              - --src_dir
+              - ${workspace.file_path}/src/extraction
+              - --step
+              - publish
+
+        - task_key: guard_fee_schedule
+          depends_on: [{task_key: publish_fee_schedule}]
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/extraction/fee_extraction.py
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --analyst
+              - "{{job.parameters.analyst}}"
+              - --rate_cards_yaml
+              - ${workspace.file_path}/src/datagen/config/rate_cards.yaml
+              - --src_dir
+              - ${workspace.file_path}/src/extraction
+              - --step
+              - guard

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trade Cost Explain — Meridian Group</title>
+    <script>
+      // Apply the theme before first paint: ?theme=<key> (saved for next time), else the saved choice, else the
+      // default. Keys mirror src/themes.ts; the earlier light / dark choices map to their nearest new theme.
+      (function () {
+        var keys = ["marunouchi", "otemachi", "washi", "kon", "sumi"], legacy = { light: "marunouchi", dark: "otemachi" };
+        var t = null, q = null;
+        try { q = new URLSearchParams(location.search).get("theme"); t = q || localStorage.getItem("ce-theme"); } catch (e) {}
+        t = legacy[t] || t;
+        if (keys.indexOf(t) < 0) t = "marunouchi";
+        document.documentElement.dataset.theme = t;
+        try { if (q) localStorage.setItem("ce-theme", t); } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
