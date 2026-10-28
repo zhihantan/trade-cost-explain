@@ -29,6 +29,7 @@ MANIFEST = [
     "evidence/04_genai_agent_and_extraction.md",
     "evidence/05_genie_benchmarks.md",
     "evidence/06_app_smoke_test.md",
+    "evidence/07_live_recheck_2026-10-28.md",
     # Lakeflow
     "resources/ce_medallion.pipeline.yml",
     "src/pipeline/bronze/trades_raw.sql",
@@ -44,10 +45,8 @@ MANIFEST = [
     "src/agent/commentary_agent.py",
     # Genie
     "resources/cost_explain.genie_space.yml",
-    "src/genie/ask.py",
     # App
     "cost-explain-app/app.yaml",
-    "cost-explain-app/backend/main.py",
 ]
 
 MAX_FILES, MAX_PER_FILE, MAX_TOTAL = 30, 9_000, 90_000

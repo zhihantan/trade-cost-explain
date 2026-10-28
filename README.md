@@ -23,8 +23,8 @@ brokers and planted fee changes are fictional (modelled on public HKEX / SGX / A
 
 Committed, text-readable evidence is in [`evidence/`](evidence/README.md): tie-out gate 56/56, 59 dashboard queries
 re-run with 0 failures, the row filter tested as a desk-head persona (12 desks → 1), agent drafts with every figure chip
-resolved, Genie 11/11, approve → Unity Catalog in 35 s, and a 2026-10-28 local re-run (17 tests passed, independent
-verifier PASS). Decisions, trade-offs and where AI helped: [`BUILD.md`](BUILD.md).
+resolved, Genie 11/11, approve → Unity Catalog in 35 s, and on 2026-10-28 a local re-run (17 tests passed, independent
+verifier PASS) plus a live re-check (tie-out 56/56 queried from Gold, agent eval PASSED 5/5). Decisions, trade-offs and where AI helped: [`BUILD.md`](BUILD.md).
 
 | Document | What it covers |
 |---|---|

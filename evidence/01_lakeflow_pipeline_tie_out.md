@@ -40,8 +40,3 @@ Recorded in workspace `fe-vm-zh-serverless` (AWS us-west-2) on 2026-10-22; copie
 | Invoice | Cobalt Securities, August brokerage: expected US$425K, invoiced US$510K, **US$85K over-billed** (three legal-entity lines) · 7 lines outside tolerance · 86 awaiting the vendor invoice |
 | Fails, Sep 2026 | net US$201.7K from 423 failed settlements · **Kestrel Asset Management US$144.9K** (next counterparty US$4.2K) · funding US$19.3K and borrow US$3.2K shown separately |
 | Controls | tie-out **56 passed / 0 failed** · 99.76% of GL mapped to a counterparty |
-
-## Volumes landed and processed
-
-~3.28M executions, 2.6M settlements, 9.3K GL lines, 640 invoices / 5.4K invoice lines (`BUILD_PLAN.md` §10, row 7);
-the 2026-10-28 local regeneration produced the same counts (`00_local_checks.md`).

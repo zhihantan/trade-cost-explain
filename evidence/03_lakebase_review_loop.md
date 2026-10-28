@@ -11,7 +11,6 @@ Recorded in workspace `fe-vm-zh-serverless` on 2026-10-22; copied from `docs/APP
 | Check | Result |
 |---|---|
 | Lakebase connection | `valueFrom: postgres` injects the **endpoint path** (`projects/cost-explain-db/branches/production/endpoints/primary`); `PGHOST`/`PGDATABASE`/`PGUSER` (= SP client id)/`PGPORT`/`PGSSLMODE`/`PGAPPNAME` also injected. OAuth via `w.postgres.generate_database_credential(endpoint=...)`, PG 17.11, ~10 ms round trip |
-| Agent draft end to end | `ce-commentary-agent` (model v2, `databricks-claude-sonnet-5-5`): 41–52 s per draft, 14–16 chips, all resolved, no value mismatches; edit → v3 → submit → four-eyes block on self-approval → audit. Early probes returned an empty message / `EXECUTE on get_cost_bridge` error; the template fallback covered them transparently |
 | UC review history | `01_merge_review.sql` + `02_figure_evidence_view.sql` run on live Gold; `review.v_commentary_figure_evidence` = 82/82 figures `TIES` after the final demo reset |
 | Event-driven sync | Re-tested 2026-10-22 on the current build: approve in the app → `ce_review_sync` run started 3 s later (app service principal) → UC shows the approval 35 s after the click. The evidence view lists current items only, so figures of items removed by a demo reset stay in the append-only history but do not appear as blank rows |
 

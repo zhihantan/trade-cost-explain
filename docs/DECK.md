@@ -49,7 +49,7 @@ Arc: **tell** (the outcome) → **show** (four live demo moments) → **tell** (
   - Trade costs **US$5.0M → US$6.2M (+24%)**, September vs August [prototype]
   - **75% volume-driven** (revenue rose with it); **28% controllable** (mix + fails) [prototype]
   - Found: **US$85K broker over-billing**, **US$145K** fail cost from one counterparty [prototype]
-  - Commentary drafted in **under a minute**, approved under **four-eyes**, every figure traced [prototype]
+  - Commentary drafted in **under a minute** once warm, approved under **four-eyes**, every figure traced [prototype]
 - **Visual:** four KPI tiles in a row (Explained · Controllable · Recovered · Time to commentary).
 - **Speaker notes:** "If you remember one slide: the bars add up, we know which part is good cost and which part is
   controllable, and the narrative is signed off with evidence."
@@ -110,13 +110,14 @@ Arc: **tell** (the outcome) → **show** (four live demo moments) → **tell** (
 
 - **Headline:** The agent drafts, an analyst edits, a second person approves
 - **On-slide content:**
-  - Draft in **41–52 seconds**; **14–16 figures per draft, all traced** to the governed data [prototype]
+  - Draft in **23–52 seconds** once warm; **14–25 figures per draft, all traced** to the governed data [prototype]
   - Every number is a figure chip: source table, filter and version one click away
   - **Four-eyes:** the author cannot approve their own commentary; every action audited
   - Approved history lands in Unity Catalog **35 seconds** after the click [prototype]
 - **Visual:** screenshot-style mock of the review app: commentary text with highlighted figure chips, an approval
   panel, an audit trail.
 - **Demo cue:** Databricks App *cost-explain-app* (scene 7): Draft commentary → edit → submit → approve the seeded item.
+  Warm the agent endpoint before you present: the first request after idle took 122 s in testing.
 - **Speaker notes:** "The agent may only state numbers the tools returned; anything else is dropped before you see it."
 
 ## Slide 8 — Ask in plain language
@@ -165,7 +166,7 @@ Arc: **tell** (the outcome) → **show** (four live demo moments) → **tell** (
   | Tie-out gate | 56 / 56 passed |
   | Dashboard queries re-run as deployed | 59, 0 failures |
   | Genie benchmarks | 11 / 11 |
-  | Agent drafts | every figure resolved, no value mismatches |
+  | Agent eval | 5 / 5 scenarios, every figure resolved, no value mismatches |
   | Approval → Unity Catalog | 35 s |
   | Independent rebuild from raw files | PASS (3.28M executions) |
 

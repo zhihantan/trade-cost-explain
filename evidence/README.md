@@ -1,8 +1,10 @@
 # Execution evidence
 
-Text-readable proof that the build ran, in two kinds:
+Text-readable proof that the build ran, in three kinds:
 
 - **Re-run on 2026-10-28, locally** (no workspace needed): unit tests and the independent tie-out verifier — `00`.
+- **Re-checked live on 2026-10-28** against the deployed build: tie-out results and the bridge queried from Gold, a
+  Genie question, and the agent eval (**5/5 scenarios passed**) — `07`.
 - **Recorded live on 2026-10-22** in workspace `fe-vm-zh-serverless` (AWS us-west-2) by the build's own jobs and
   scripts (`ce_build` tie-out gate, `validate_dashboard.py`, the Genie benchmark eval API, the extraction report, app
   smoke tests, a persona service principal) — `01`–`06`, copied from `docs/` with the source section named in each file.
@@ -15,6 +17,7 @@ Text-readable proof that the build ran, in two kinds:
 | Gen AI — make it intelligent | [`04_genai_agent_and_extraction.md`](04_genai_agent_and_extraction.md) | Agent on Model Serving: **14–16 chips per draft, all resolved, no value mismatches**; PDF fee extraction **98.6%** field accuracy (prompt v1 → v2: 49.6% → 73.4% lines fully right) |
 | Genie Agent — ask in plain language | [`05_genie_benchmarks.md`](05_genie_benchmarks.md) | **11/11** benchmarks after 10 eval runs (5/10 → 10/10, one lever per run) |
 | Databricks App — put it in front of the business | [`06_app_smoke_test.md`](06_app_smoke_test.md) | Deployed; `/api/health` 200; user-token SQL; Lakebase OAuth; four-eyes approvals |
+| All layers, live today | [`07_live_recheck_2026-10-28.md`](07_live_recheck_2026-10-28.md) | Tie-out **56/56** and the bridge re-queried from Gold; Genie answered B01 in 25 s; agent eval **PASSED 5/5** (14–25 chips per draft, none unresolved) |
 | All layers, offline | [`00_local_checks.md`](00_local_checks.md) | **17 tests passed**; regenerated 3,280,842 executions; independent verifier **RESULT: PASS** |
 
 ## Reproduce
