@@ -8,6 +8,24 @@ individual executions, with agent-drafted, analyst-approved commentary and Unity
 Synthetic entity **Meridian Group** (US GAAP, April–March fiscal year). **All numbers are illustrative**; venues,
 brokers and planted fee changes are fictional (modelled on public HKEX / SGX / ASX / NSE-BSE fee structures).
 
+## Six layers, one journey
+
+| Layer | What it does here | Where |
+|---|---|---|
+| Lakeflow | SDP pipeline `ce_medallion`: Auto Loader bronze → silver with expectations → Gold materialized views; job `ce_build` ends with a 56-check tie-out gate | `src/pipeline/`, `resources/ce_medallion.pipeline.yml`, `resources/ce_build.job.yml` |
+| Unity Catalog | Desk row filters on Gold, grants, metric views, recorded lineage | `src/governance/`, `src/metric_views/` |
+| Lakebase | Review and approval store (drafts, versions, four-eyes approvals, audit), replicated back to Unity Catalog | `resources/cost_explain_db.postgres_project.yml`, `cost-explain-app/backend/db_lakebase.py`, `src/review_sync/` |
+| Gen AI | Commentary agent (MLflow ResponsesAgent on Model Serving, UC function tools, figure chips); PDF fee extraction (`ai_parse_document` → `ai_extract`) | `src/agent/`, `src/extraction/` |
+| Genie Agent | Space over the metric views and Gold, 11/11 benchmarks | `src/genie/`, `resources/cost_explain.genie_space.yml` |
+| Databricks App | React + FastAPI review and approval app; reads with the signed-in user's token | `cost-explain-app/` |
+
+## Proof it runs
+
+Committed, text-readable evidence is in [`evidence/`](evidence/README.md): tie-out gate 56/56, 59 dashboard queries
+re-run with 0 failures, the row filter tested as a desk-head persona (12 desks → 1), agent drafts with every figure chip
+resolved, Genie 11/11, approve → Unity Catalog in 35 s, and a 2026-10-28 local re-run (17 tests passed, independent
+verifier PASS). Decisions, trade-offs and where AI helped: [`BUILD.md`](BUILD.md).
+
 | Document | What it covers |
 |---|---|
 | `BUILD_PLAN.md` | Architecture, decisions, data design, work breakdown, risks, deviation log |
